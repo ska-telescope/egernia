@@ -318,7 +318,9 @@ async def _issue_async(
     )
 
 
-def _client(concurrency: int, timeout_s: float) -> httpx.AsyncClient:
+def _client(
+    concurrency: int, timeout_s: float, transport: httpx.AsyncBaseTransport | None = None
+) -> httpx.AsyncClient:
     # Connection limits above the offered concurrency, and keep-alive on: a
     # generator that reconnects per request measures TCP setup, and one that
     # queues internally on a small pool measures its own pool. The same
@@ -329,7 +331,17 @@ def _client(concurrency: int, timeout_s: float) -> httpx.AsyncClient:
         max_keepalive_connections=max(concurrency * 2, 64),
         keepalive_expiry=60.0,
     )
-    return httpx.AsyncClient(limits=limits, timeout=httpx.Timeout(timeout_s), http2=False)
+    # follow_redirects: a TAP service may answer a sync POST with 303 to a
+    # job URL (UWS; CADC argus does, DaCHS and egernia answer 200 directly).
+    # The redirect hop is the server's own design and stays inside the timed
+    # request; httpx turns a 303 into the GET the standard expects.
+    return httpx.AsyncClient(
+        limits=limits,
+        timeout=httpx.Timeout(timeout_s),
+        http2=False,
+        follow_redirects=True,
+        transport=transport,
+    )
 
 
 async def closed_loop(

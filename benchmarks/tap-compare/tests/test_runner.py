@@ -69,3 +69,31 @@ def test_maxrec_is_sent_explicitly():
     assert sent["MAXREC"] == "12345"
     assert sent["RESPONSEFORMAT"] == "csv"
     assert recorder.samples[0].status == 200
+
+
+def test_a_sync_303_is_followed_with_a_get():
+    """UWS lets a service answer a sync POST with 303 to a job URL (CADC argus
+    does); the timed request follows it as the standard expects and records
+    the final status, not the redirect."""
+    import asyncio
+
+    import httpx
+
+    calls = []
+
+    def handler(request):
+        calls.append((request.method, request.url.path))
+        if request.method == "POST":
+            return httpx.Response(303, headers={"location": "http://x/tap/sync/j1/run"})
+        return httpx.Response(200, text="a,b\n1,2\n")
+
+    entry = corpus.CorpusEntry(query_id="x", query_class="Q01", adql="SELECT 1")
+    recorder = load_runner.Recorder()
+
+    async def go():
+        async with load_runner._client(1, 5.0, transport=httpx.MockTransport(handler)) as client:
+            await load_runner._issue_sync(client, "http://x/tap", entry, 0.0, recorder, "csv", 10)
+
+    asyncio.run(go())
+    assert calls == [("POST", "/tap/sync"), ("GET", "/tap/sync/j1/run")]
+    assert recorder.samples[0].status == 200 and recorder.samples[0].response_bytes == 8
