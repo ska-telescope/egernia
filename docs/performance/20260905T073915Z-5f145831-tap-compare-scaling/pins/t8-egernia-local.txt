@@ -1,0 +1,37 @@
+# 2026-09-05T07:40:36Z tier 8 egernia, order: egernia then dachs
+## egernia-db-1
+cpuset=0-7 nanocpus=0 memory=4294967296
+postgres -c shared_buffers=1GB -c effective_cache_size=3GB -c work_mem=64MB -c max_parallel_workers=32 -c max_worker_processes=40
+  PID                 COMMAND
+  1017959             postgres -c shared_buffers=1GB -c effective_cache_size=3GB -c work_mem=64MB -c max_parallel_workers=32 -c max_worker_processes=40
+  1018466             postgres: io worker 0
+  1018467             postgres: io worker 1
+  1018468             postgres: io worker 2
+  1018469             postgres: checkpointer
+  1018470             postgres: background writer
+  1018495             postgres: walwriter
+  1018498             postgres: autovacuum launcher
+  1018501             postgres: logical replication launcher
+  1025897             postgres: tap tap 172.18.0.3(46324) idle
+  1025898             postgres: tap tap 172.18.0.3(46336) idle
+  1025958             postgres: tap tap 172.18.0.4(54452) idle
+  1025959             postgres: tap tap 172.18.0.4(54462) idle
+  1046583             postgres: tap tap 172.18.0.4(36260) idle
+## egernia-tap-api-1
+cpuset=0-7 nanocpus=0 memory=2147483648
+/bin/sh -c exec /srv/.venv/bin/uvicorn egernia_api.main:app --host 0.0.0.0 --port "${TAP_API_PORT:-8080}" --workers "${TAP_API_WORKERS:-1}" --backlog "${TAP_API_BACKLOG:-2048}" ${TAP_API_LIMIT_CONCURRENCY:+--limit-concurrency "${TAP_API_LIMIT_CONCURRENCY}"}
+TAP_API_WORKERS=1
+  PID                 COMMAND
+  1024152             /srv/.venv/bin/python /srv/.venv/bin/uvicorn egernia_api.main:app --host 0.0.0.0 --port 8080 --workers 1 --backlog 2048
+## egernia-tap-executor-1
+cpuset=0-7 nanocpus=0 memory=2147483648
+/srv/.venv/bin/python -m egernia_executor.worker
+  PID                 COMMAND
+  1024142             /srv/.venv/bin/python -m egernia_executor.worker
+## SHOW
+effective_cache_size = 3GB
+max_connections = 100
+max_parallel_workers = 32
+max_worker_processes = 40
+shared_buffers = 1GB
+work_mem = 64MB
