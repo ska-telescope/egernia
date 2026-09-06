@@ -2,6 +2,7 @@
 is the parity protocol with argus in DaCHS's seat, and the argus stack holds
 the DaCHS budget under the pre-registered sizing rules."""
 
+import hashlib
 import pathlib
 
 import yaml
@@ -82,3 +83,15 @@ def test_publisher_describes_the_stacks_actually_compared():
     assert "docker-compose.argus.yml" in intro and "egernia-pins" in intro
     assert "dachs" not in intro.lower()
     assert "tap-compare-argus-db-1" in publish.SERVER_CONTAINERS["argus"]
+
+
+def test_vendored_caom2_ddl_matches_its_provenance():
+    sql_dir = SUITE / "targets" / "argus" / "db" / "caom2-sql"
+    pinned = dict(
+        reversed(line.split())
+        for line in (sql_dir / "PROVENANCE").read_text().splitlines()
+        if line and not line.startswith("#")
+    )
+    assert set(pinned) == {p.name for p in sql_dir.glob("*.sql")}
+    for name, digest in pinned.items():
+        assert hashlib.sha256((sql_dir / name).read_bytes()).hexdigest() == digest, name
