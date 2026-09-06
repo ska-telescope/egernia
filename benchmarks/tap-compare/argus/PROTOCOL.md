@@ -55,6 +55,28 @@ by CFS quota alone (`cpus: 8`, floating over all 30 cores); argus, like
 egernia, is pinned to cores 0–7, which keeps it off the generator's cores
 24–29 — the same core budget, the placement the scaling protocol adopted.
 
+### Version evidence (checked 2026-09-06)
+
+`images.opencadc.org/caom2/argus` lists 67 tags (registry `/v2/.../tags/list`,
+anonymous token). **1.0.27 is the newest release**: image built
+2026-07-21T21:15Z (its build tag `1.0.27-20260721T211508`; OCI `created`
+2026-07-21T14:14-07:00), digest
+`sha256:34a74b237ed48a291533bdaf36484856285b39e0ae02804c96501e96085e7f4b`,
+`IMAGE_VERSION=1.0.27`. The only newer-numbered tags are `2.0-ALPHA` and
+`2.0-BETA-02…08` — pre-releases of argus 2.0 for CAOM 2.5 from the
+`caom25` branch (latest `2.0-BETA-08`, built 2026-07-09, i.e. older than
+1.0.27; the branch head reads `2.0-BETA-09`, unpublished). Upstream `main`
+(733b4cd, 2026-07-20) has no commit touching `argus/` after the one the
+image was built from (`ccda27d`, "argus 1.0.27", 2026-07-15); its
+`argus/VERSION` is 1.0.27. Libraries bundled in the image's war (read from
+the image layer) against Maven Central's latest: caom2-tap-server 1.2.24
+(= latest), cadc-tap-server 1.1.39 (=), cadc-tap-schema 1.2.19 (=),
+cadc-tap-server-pg 1.1.5 (=), cadc-uws-server 1.3.1 (=), cadc-tap-tmp
+1.2.2 (=), cadc-adql 1.1.16 (latest 1.1.17, published 2026-07-22, the day
+after the image; its one change fixes the TAP_UPLOAD converter's reference
+navigator, which no query in this workload exercises). The vendored DDL and the configuration keys were read at
+733b4cd, which the image postdates by a day and matches for `argus/`.
+
 ## What was configured on argus, and why
 
 argus is deployed the way its README deploys it — the vendor image, run as
