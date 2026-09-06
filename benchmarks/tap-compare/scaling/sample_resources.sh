@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Resource telemetry beside a scaling run (PROTOCOL.md, amendment 1): every
-# INTERVAL seconds, one JSON line per running egernia-* / tap-compare-dachs-*
+# INTERVAL seconds, one JSON line per running egernia-* / tap-compare-*
 # container with its cgroup v2 CPU time and memory, plus the number of
 # python processes in it (the API's uvicorn supervisor + workers). Pure
 # file reads; `docker inspect` only once per new container id.
@@ -19,7 +19,7 @@ while true; do
             NAME[$id]=$(docker inspect --format '{{.Name}}' "$id" 2>/dev/null | sed 's|^/||')
         fi
         name=${NAME[$id]}
-        case $name in egernia-prometheus-*) continue ;; egernia-*|tap-compare-dachs-*) ;; *) continue ;; esac
+        case $name in egernia-prometheus-*) continue ;; egernia-*|tap-compare-dachs-*|tap-compare-argus-*) ;; *) continue ;; esac
         cpu=$(awk '$1 == "usage_usec" {print $2}' "$scope/cpu.stat" 2>/dev/null) || continue
         mem=$(cat "$scope/memory.current" 2>/dev/null) || continue
         procs=0
