@@ -1,0 +1,71 @@
+# CADC argus, the benchmark's third comparison target: the vendor image of
+# the OpenCADC CAOM2 TAP service (Java 21 / Tomcat 9 on the cadc-tomcat
+# base, github.com/opencadc/caom2 argus/) over the PostgreSQL 17 + pgsphere
+# it requires but does not ship, serving the exported ObsCore corpus as a
+# plain caom2.ObsCore table (argus/PROTOCOL.md says what and why).
+#
+#   scripts/export_obscore_snapshot.sh benchmarks/tap-compare/corpus
+#   docker compose -f benchmarks/tap-compare/docker-compose.argus.yml up -d --build
+#   # the database's first start ingests the corpus (COPY + indexes) before
+#   # it listens; argus waits for it and writes TAP_SCHEMA itself
+#
+# Port 8082 on the host (egernia holds 8080, DaCHS 8081); the TAP root is
+# http://localhost:8082/argus. Two containers hold the DaCHS budget the way
+# the egernia pins do: one shared 8-core cpuset, 8 GiB split 3 (Tomcat, whose
+# vendor default heap is 2 GiB) / 5 (PostgreSQL, sized to its share).
+services:
+  argus:
+    image: images.opencadc.org/caom2/argus:1.0.27@sha256:34a74b237ed48a291533bdaf36484856285b39e0ae02804c96501e96085e7f4b
+    # the README's `docker run --user tomcat:tomcat --volume=...:/config:ro`
+    user: tomcat:tomcat
+    ports:
+      - "8082:8080"
+    volumes:
+      - ./targets/argus/config:/config:ro
+    depends_on:
+      argus-db:
+        condition: service_healthy
+    cpuset: "0-7"
+    mem_limit: 3g
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8080/argus/availability | grep -q 'available>true<'"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 90s
+
+  argus-db:
+    build: targets/argus/db
+    # 5 GiB share, the rule of docs/postgres-performance.md applied to it as
+    # scaling/pins/dachs-postgres-8.conf applied it to DaCHS: shared_buffers
+    # 1/4, effective_cache_size 3/4, and egernia's parallel budget.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=1280MB
+      - -c
+      - effective_cache_size=3840MB
+      - -c
+      - max_parallel_workers=32
+      - -c
+      - max_worker_processes=40
+    environment:
+      POSTGRES_USER: tap
+      POSTGRES_PASSWORD: tap
+      POSTGRES_DB: argus
+    volumes:
+      - ./corpus:/corpus:ro
+      - argus-pg:/var/lib/postgresql/data
+    cpuset: "0-7"
+    mem_limit: 5g
+    healthcheck:
+      # over TCP on purpose: while the init scripts load the corpus the
+      # server answers on its socket only, and argus must not start before
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U tap -d argus"]
+      interval: 10s
+      timeout: 5s
+      retries: 180
+      start_period: 30s
+
+volumes:
+  argus-pg:

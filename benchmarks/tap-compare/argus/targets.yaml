@@ -1,0 +1,26 @@
+# The egernia-vs-argus comparison's targets (argus/PROTOCOL.md). Lane A only:
+# every target here is a locally deployed server the operator controls —
+# this harness is never pointed at somebody else's production service.
+# egernia-local is config/targets.yaml's entry verbatim.
+targets:
+  - name: egernia-local
+    server: egernia
+    base_url: http://localhost:8080/tap
+    # egernia can also answer the srcnet.* classes (Q08/Q09/Q14), but a
+    # cross-server run holds every target to the portable ObsCore subset;
+    # set false for an egernia-only appendix run.
+    portable_only: true
+    notes: >-
+      The repository's own docker-compose.yml stack, seeded with
+      `uv run --group dataset python -m egernia_dataset.seed`.
+  - name: argus-local
+    server: argus
+    base_url: http://localhost:8082/argus
+    portable_only: true
+    notes: >-
+      CADC argus 1.0.27, the OpenCADC CAOM2 TAP service, from its vendor
+      image images.opencadc.org/caom2/argus over PostgreSQL 17 + pgsphere
+      (benchmarks/tap-compare/docker-compose.argus.yml), serving the exported
+      ObsCore corpus as a plain caom2.ObsCore table in place of its
+      Observation-join-Plane view; configuration in
+      benchmarks/tap-compare/targets/argus/, rationale in argus/PROTOCOL.md.
