@@ -9,17 +9,20 @@
 #   # the database's first start ingests the corpus (COPY + indexes) before
 #   # it listens; argus waits for it and writes TAP_SCHEMA itself
 #
-# Port 8082 on the host (egernia holds 8080, DaCHS 8081); the TAP root is
-# http://localhost:8082/argus. Two containers hold the DaCHS budget the way
+# Port 80 on the host (egernia holds 8080, DaCHS 8081): argus can only
+# advertise default-port URLs (targets/argus/Dockerfile), so the TAP root is
+# http://localhost/argus. Two containers hold the DaCHS budget the way
 # the egernia pins do: one shared 8-core cpuset, 8 GiB split 3 (Tomcat, whose
 # vendor default heap is 2 GiB) / 5 (PostgreSQL, sized to its share).
 services:
   argus:
-    image: images.opencadc.org/caom2/argus:1.0.27@sha256:34a74b237ed48a291533bdaf36484856285b39e0ae02804c96501e96085e7f4b
+    # the vendor image (digest pinned in the Dockerfile) with its
+    # capabilities template pointed at http://localhost
+    build: targets/argus
     # the README's `docker run --user tomcat:tomcat --volume=...:/config:ro`
     user: tomcat:tomcat
     ports:
-      - "8082:8080"
+      - "80:8080"
     volumes:
       - ./targets/argus/config:/config:ro
     depends_on:

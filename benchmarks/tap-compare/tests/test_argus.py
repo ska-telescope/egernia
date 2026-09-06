@@ -39,7 +39,7 @@ def test_argus_config_is_the_parity_protocol_against_argus():
     assert set(targets) == {"egernia-local", "argus-local"}
     assert targets["egernia-local"] == parity["egernia-local"]
     assert targets["argus-local"]["server"] == "argus"
-    assert targets["argus-local"]["base_url"] == "http://localhost:8082/argus"
+    assert targets["argus-local"]["base_url"] == "http://localhost/argus"
     assert targets["argus-local"]["portable_only"]
 
 
@@ -49,8 +49,9 @@ def test_argus_stack_holds_the_dachs_budget():
     assert {s["cpuset"] for s in services.values()} == {"0-7"}
     memory = {name: _bytes(s["mem_limit"]) for name, s in services.items()}
     assert sum(memory.values()) == 8 * GIB
-    assert services["argus"]["image"].startswith("images.opencadc.org/caom2/argus:1.0.27@sha256:")
-    assert services["argus"]["ports"] == ["8082:8080"]
+    dockerfile = (SUITE / "targets" / "argus" / "Dockerfile").read_text()
+    assert "FROM images.opencadc.org/caom2/argus:1.0.27@sha256:" in dockerfile
+    assert services["argus"]["ports"] == ["80:8080"]  # default-port URLs only
     # the database sized to its share by the same rule as egernia's and the
     # scaling run's DaCHS: 1/4, 3/4, and egernia's parallel budget
     tuning = _settings(services["argus-db"]["command"])
@@ -74,7 +75,7 @@ def test_argus_pools_are_one_connection_per_pinned_core():
         props[f"org.opencadc.argus.{pool}.maxActive"] for pool in ("uws", "tapadm", "query")
     } == {"8"}
     assert props["tomcat.connector.scheme"] == "http"
-    assert props["tomcat.connector.proxyPort"] == "8082"
+    assert props["tomcat.connector.proxyPort"] == "80"
     assert "ca.nrc.cadc.auth.IdentityManager" not in props  # anonymous
 
 

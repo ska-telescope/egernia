@@ -165,8 +165,8 @@ for proprietary metadata, DataLink resolution of publisher IDs — reports
 "not found" and is skipped (verified in `CaomTapService`, `CredUtil`,
 `DataLinkURLFormat`). No `IdentityManager` is configured (cadc-util's
 `NoOpIdentityManager`: every caller anonymous). Tomcat's proxy properties
-name the mapped host port so capabilities and UWS documents carry URLs
-clients and taplint can follow. Async results go to the container's `/tmp`
+name the address clients use so UWS documents carry URLs clients and
+taplint can follow (see amendment 1 for why that address is port 80). Async results go to the container's `/tmp`
 (`TempStorageManager`).
 
 ## Gates
@@ -228,3 +228,29 @@ uv run --group tap-compare python benchmarks/tap-compare \
     --config-dir benchmarks/tap-compare/argus \
     compare --targets egernia-local argus-local --scenario compare
 ```
+
+## Amendments before measurement
+
+**1 — port 80 and the capabilities template (2026-09-06, found at the
+first gate run; no rung measured).** argus advertises its endpoints from
+the capabilities template in its war (`https://replace.me.com/argus/...`);
+cadc-vosi's `CapGetAction` rewrites only the host name at request time —
+`new URL(template protocol, request host, path)` — so the scheme stays the
+template's and the port is always the scheme's default (CADC runs behind a
+TLS terminator on 443). Deployed on host port 8082 it advertised
+`https://localhost/argus/...`; taplint follows those URLs and every stage
+reported "Connection refused" (43 errors, 28 blocking) while the agreement
+gate, which uses the configured base URL, passed 11/11. Fix, the smallest
+that lets argus tell the truth about itself: the stack maps **host port 80**
+(free on this host) to Tomcat's 8080, Tomcat's `proxyPort` is 80, and the
+vendor image is rebuilt (`targets/argus/Dockerfile`, digest of the vendor
+image unchanged) with the one template string `https://replace.me.com`
+replaced by `http://localhost` inside the war — nothing else in the image
+changes. The TAP root is therefore `http://localhost/argus`, not
+`:8082/argus`. **2 — the harness follows a sync 303.** argus answers a
+sync POST with `303 See Other` to `/sync/{job}/run` (its UWS job manager);
+the runner and the agreement probe now follow redirects, so the hop is
+counted inside argus's timed request as its own cost rather than as an
+HTTP 303 error (no-op for egernia and DaCHS, which answer 200 directly;
+`tests/test_runner.py`). Neither amendment changes the workload, grid,
+gates or statistics.

@@ -15,7 +15,7 @@ targets:
       `uv run --group dataset python -m egernia_dataset.seed`.
   - name: argus-local
     server: argus
-    base_url: http://localhost:8082/argus
+    base_url: http://localhost/argus
     portable_only: true
     notes: >-
       CADC argus 1.0.27, the OpenCADC CAOM2 TAP service, from its vendor
