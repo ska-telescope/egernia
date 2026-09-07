@@ -126,9 +126,18 @@ def _fmt(ci: dict, digits: int = 1) -> str:
     return f"{ci['mean']:.{digits}f} ±{half:.{digits}f}"
 
 
-#: how each server's stack holds the parity budget, and the compose line
-#: that brings it up (keyed by the `server` field of a target)
+#: how each stack holds the parity budget, and the compose line that brings
+#: it up — keyed by a target's name where the target has pins of its own,
+#: else by its `server`
 STACKS = {
+    "egernia-local-equalcpu": (
+        "egernia in `benchmarks/tap-compare/argus-equal-cpu/egernia-equalcpu.yml`"
+        " (shared `cpuset` of 8 cores; 8 GiB split 4 db / 2 api / 2 executor;"
+        " `TAP_API_WORKERS=8`, PostgreSQL parallel budget 144/152;"
+        " `benchmarks/tap-compare/argus-equal-cpu/PROTOCOL.md`)",
+        "docker compose -f docker-compose.yml \\\n"
+        "    -f benchmarks/tap-compare/argus-equal-cpu/egernia-equalcpu.yml up -d",
+    ),
     "egernia": (
         "egernia in `benchmarks/tap-compare/docker-compose.egernia-pins.yml`"
         " (shared `cpuset` of 8 cores; 8 GiB split 4 db / 2 api / 2 executor)",
@@ -148,8 +157,15 @@ STACKS = {
 }
 
 
-def parity_intro(servers: list[str]) -> list[str]:
-    stacks = "; ".join(STACKS[s][0] for s in servers if s in STACKS)
+def stack_keys(rows: list[dict]) -> list[str]:
+    """The STACKS entries a run's rows point at: a target's own entry if it
+    has one, else its server's."""
+    keys = {r["target"] if r["target"] in STACKS else r["server"] for r in rows}
+    return sorted(k for k in keys if k in STACKS)
+
+
+def parity_intro(stacks: list[str]) -> list[str]:
+    stacks = "; ".join(STACKS[s][0] for s in stacks if s in STACKS)
     return [
         "Same-hardware TAP-server comparison: identical logical corpus, each",
         "server deployed per its own documentation, one target under load at",
@@ -489,8 +505,8 @@ def render(run_dir: pathlib.Path, out_dir: pathlib.Path) -> pathlib.Path:
                         | {k: (round(v, 6) if isinstance(v, float) else v) for k, v in res.items()}
                     )
 
-    servers = sorted({r["server"] for r in rows})
-    lines = [f"# {run_dir.name}", ""] + (SCALING_INTRO if scaling else parity_intro(servers))
+    stacks = stack_keys(rows)
+    lines = [f"# {run_dir.name}", ""] + (SCALING_INTRO if scaling else parity_intro(stacks))
     for tier in tiers:
         prefix = f"t{tier}-" if tier else ""
         gates = json.loads((run_dir / f"{prefix}gates.json").read_text())
@@ -540,7 +556,7 @@ def render(run_dir: pathlib.Path, out_dir: pathlib.Path) -> pathlib.Path:
     if scaling:
         lines += ["benchmarks/tap-compare/scaling/run.sh"]
     else:
-        lines += [STACKS[s][1] for s in servers if s in STACKS]
+        lines += [STACKS[s][1] for s in stacks]
         lines += [
             "uv run --group tap-compare python benchmarks/tap-compare compare \\",
             f"    --targets {' '.join(targets)} --scenario <scenario>",
