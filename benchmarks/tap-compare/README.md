@@ -77,6 +77,17 @@ config directory whose `scenarios.yaml` is `config/`'s verbatim
 argus-local`). What was decided to put argus in DaCHS's seat, and why, is
 in [`argus/PROTOCOL.md`](argus/PROTOCOL.md).
 
+### The equal-CPU variant (`argus-equal-cpu/`)
+
+The same protocol with egernia's API at one uvicorn worker per pinned core
+(`TAP_API_WORKERS=8`, PostgreSQL's parallel budget re-derived by the
+documented rule; `argus-equal-cpu/egernia-equalcpu.yml`), because a Tomcat
+uses all eight cores for CPU-bound work where one uvicorn worker uses one
+(tag `tap-compare-argus-equalcpu-prereg-v1`;
+[`argus-equal-cpu/PROTOCOL.md`](argus-equal-cpu/PROTOCOL.md)). Targets
+`egernia-local-equalcpu argus-local`, `--config-dir
+benchmarks/tap-compare/argus-equal-cpu`.
+
 ## Fairness rules (lane A — the only lane)
 
 This harness is **never pointed at a production service someone else
