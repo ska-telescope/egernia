@@ -294,8 +294,11 @@ def resources(run_dir: pathlib.Path, rows: list[dict]) -> dict[str, dict]:
             continue
         workers = None
         if API_CONTAINER in inside:
-            procs = max(s[3] for s in inside[API_CONTAINER])
-            workers = 1 if procs <= 1 else procs - 1  # a supervisor above one worker
+            # the steady count (the minimum: a health check adds a python
+            # process for a sample now and then); above one worker uvicorn
+            # runs a supervisor and a multiprocessing resource tracker too
+            procs = min(s[3] for s in inside[API_CONTAINER])
+            workers = 1 if procs <= 1 else max(procs - 2, 1)
         mem_mean = sum(totals) / len(totals)
         mem_peak = max(totals)
         if coverage < MIN_COVERAGE:
