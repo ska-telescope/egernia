@@ -32,13 +32,12 @@ capacity checks record smaller local experiments separately.
 | `fixed-scaling` | [20260824T014320Z-a5058118-fixed-scaling](20260824T014320Z-a5058118-fixed-scaling/index.md) | D2 |
 | `keda` | [20260824T140134Z-bf7e4b24-keda](20260824T140134Z-bf7e4b24-keda/index.md) | D1 |
 | `profile` | [20260825T163627Z-034d69ba-profile](20260825T163627Z-034d69ba-profile/index.md) | D1 |
-| `tap-compare` | [20260903T160103Z-8fec0e75-tap-compare](20260903T160103Z-8fec0e75-tap-compare/index.md) | D1 |
-| `tap-compare-scaling` | [20260905T073915Z-5f145831-tap-compare-scaling](20260905T073915Z-5f145831-tap-compare-scaling/index.md) | D1 |
+| `tap-compare` | [20260903T160103Z-8fec0e75-tap-compare](20260903T160103Z-8fec0e75-tap-compare/index.md) (egernia vs DaCHS) · [20260906T145338Z-7aa14f6a-tap-compare](20260906T145338Z-7aa14f6a-tap-compare/index.md) (egernia vs argus) | D1 |
 | `worker-sweep` | [20260825T180219Z-f8b21fc4-worker-sweep](20260825T180219Z-f8b21fc4-worker-sweep/index.md) | D1 |
 
 ## All runs
 
-- [20260905T073915Z-5f145831-tap-compare-scaling](20260905T073915Z-5f145831-tap-compare-scaling/index.md)
+- [20260906T145338Z-7aa14f6a-tap-compare](20260906T145338Z-7aa14f6a-tap-compare/index.md) — egernia vs CADC argus, one-process parity
 - [20260903T160103Z-8fec0e75-tap-compare](20260903T160103Z-8fec0e75-tap-compare/index.md)
 - [20260901T054529Z-3c8add85-tap-compare](20260901T054529Z-3c8add85-tap-compare/index.md)
 - [20260825T180219Z-f8b21fc4-worker-sweep](20260825T180219Z-f8b21fc4-worker-sweep/index.md)
