@@ -66,6 +66,28 @@ measures the servers one at a time per tier into one run directory
 (`compare --tier <tier> --only <target>`); `publish` renders one section
 per tier. The parity protocol under `config/` is untouched.
 
+## The third target: CADC argus (`argus/`)
+
+The parity protocol run against the OpenCADC CAOM2 TAP service instead of
+DaCHS (tag `tap-compare-argus-prereg-v1`): the vendor image over a
+PostgreSQL 17 + pgsphere that holds the corpus as argus's own
+`caom2.ObsCore` (`docker-compose.argus.yml`, `targets/argus/`), and a
+config directory whose `scenarios.yaml` is `config/`'s verbatim
+(`--config-dir benchmarks/tap-compare/argus`, targets `egernia-local
+argus-local`). What was decided to put argus in DaCHS's seat, and why, is
+in [`argus/PROTOCOL.md`](argus/PROTOCOL.md).
+
+### The equal-CPU variant (`argus-equal-cpu/`)
+
+The same protocol with egernia's API at one uvicorn worker per pinned core
+(`TAP_API_WORKERS=8`, PostgreSQL's parallel budget re-derived by the
+documented rule; `argus-equal-cpu/egernia-equalcpu.yml`), because a Tomcat
+uses all eight cores for CPU-bound work where one uvicorn worker uses one
+(tag `tap-compare-argus-equalcpu-prereg-v1`;
+[`argus-equal-cpu/PROTOCOL.md`](argus-equal-cpu/PROTOCOL.md)). Targets
+`egernia-local-equalcpu argus-local`, `--config-dir
+benchmarks/tap-compare/argus-equal-cpu`.
+
 ## Fairness rules (lane A — the only lane)
 
 This harness is **never pointed at a production service someone else

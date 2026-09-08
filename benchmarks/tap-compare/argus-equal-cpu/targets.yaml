@@ -1,0 +1,29 @@
+# The equal-CPU variant of the egernia-vs-argus comparison
+# (argus-equal-cpu/PROTOCOL.md). Lane A only: every target here is a locally
+# deployed server the operator controls. argus-local is argus/targets.yaml's
+# entry verbatim; egernia-local-equalcpu is the same egernia stack and URL
+# under argus-equal-cpu/egernia-equalcpu.yml instead of the parity pins.
+targets:
+  - name: egernia-local-equalcpu
+    server: egernia
+    base_url: http://localhost:8080/tap
+    portable_only: true
+    notes: >-
+      The repository's own docker-compose.yml stack (seeded with
+      `uv run --group dataset python -m egernia_dataset.seed`) under
+      benchmarks/tap-compare/argus-equal-cpu/egernia-equalcpu.yml: the
+      parity pins (cpuset 0-7, 8 GiB as 4 db / 2 api / 2 executor) with
+      TAP_API_WORKERS=8 — one uvicorn worker per pinned core, as argus's
+      Tomcat runs one thread per request on all eight — and PostgreSQL's
+      parallel budget re-derived for the resulting pool total.
+  - name: argus-local
+    server: argus
+    base_url: http://localhost/argus
+    portable_only: true
+    notes: >-
+      CADC argus 1.0.27, the OpenCADC CAOM2 TAP service, from its vendor
+      image images.opencadc.org/caom2/argus over PostgreSQL 17 + pgsphere
+      (benchmarks/tap-compare/docker-compose.argus.yml), serving the exported
+      ObsCore corpus as a plain caom2.ObsCore table in place of its
+      Observation-join-Plane view; configuration in
+      benchmarks/tap-compare/targets/argus/, rationale in argus/PROTOCOL.md.

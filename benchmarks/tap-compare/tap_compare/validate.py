@@ -68,7 +68,7 @@ def fingerprint(csv_text: str) -> dict:
 
 
 def probe(base_url: str, adql: str, maxrec: int, timeout_s: float = 120.0) -> dict:
-    with httpx.Client(timeout=timeout_s) as client:
+    with httpx.Client(timeout=timeout_s, follow_redirects=True) as client:  # UWS 303 -> GET
         response = client.post(
             f"{base_url}/sync",
             data={

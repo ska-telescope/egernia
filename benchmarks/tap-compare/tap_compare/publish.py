@@ -126,18 +126,56 @@ def _fmt(ci: dict, digits: int = 1) -> str:
     return f"{ci['mean']:.{digits}f} ±{half:.{digits}f}"
 
 
-PARITY_INTRO = [
-    "Same-hardware TAP-server comparison: identical logical corpus, each",
-    "server deployed per its own documentation, one target under load at",
-    "a time (all stacks stay up so repetitions interleave), the identical",
-    "seeded query stream, MAXREC pinned on every request. Every target",
-    "stack is pinned to the same 8 CPU / 8 GiB",
-    "budget: DaCHS in `benchmarks/tap-compare/docker-compose.dachs.yml`",
-    "(`cpus: 8`, `mem_limit: 8g`), egernia in",
-    "`benchmarks/tap-compare/docker-compose.egernia-pins.yml` (shared",
-    "`cpuset` of 8 cores; 8 GiB split 4 db / 2 api / 2 executor).",
-    "See `benchmarks/tap-compare/README.md` for the protocol.",
-]
+#: how each stack holds the parity budget, and the compose line that brings
+#: it up — keyed by a target's name where the target has pins of its own,
+#: else by its `server`
+STACKS = {
+    "egernia-local-equalcpu": (
+        "egernia in `benchmarks/tap-compare/argus-equal-cpu/egernia-equalcpu.yml`"
+        " (shared `cpuset` of 8 cores; 8 GiB split 4 db / 2 api / 2 executor;"
+        " `TAP_API_WORKERS=8`, PostgreSQL parallel budget 144/152;"
+        " `benchmarks/tap-compare/argus-equal-cpu/PROTOCOL.md`)",
+        "docker compose -f docker-compose.yml \\\n"
+        "    -f benchmarks/tap-compare/argus-equal-cpu/egernia-equalcpu.yml up -d",
+    ),
+    "egernia": (
+        "egernia in `benchmarks/tap-compare/docker-compose.egernia-pins.yml`"
+        " (shared `cpuset` of 8 cores; 8 GiB split 4 db / 2 api / 2 executor)",
+        "docker compose -f docker-compose.yml \\\n"
+        "    -f benchmarks/tap-compare/docker-compose.egernia-pins.yml up -d",
+    ),
+    "dachs": (
+        "DaCHS in `benchmarks/tap-compare/docker-compose.dachs.yml` (`cpus: 8`, `mem_limit: 8g`)",
+        "docker compose -f benchmarks/tap-compare/docker-compose.dachs.yml up -d",
+    ),
+    "argus": (
+        "argus in `benchmarks/tap-compare/docker-compose.argus.yml` (shared"
+        " `cpuset` of 8 cores; 8 GiB split 3 Tomcat / 5 PostgreSQL;"
+        " `benchmarks/tap-compare/argus/PROTOCOL.md`)",
+        "docker compose -f benchmarks/tap-compare/docker-compose.argus.yml up -d --build",
+    ),
+}
+
+
+def stack_keys(rows: list[dict]) -> list[str]:
+    """The STACKS entries a run's rows point at: a target's own entry if it
+    has one, else its server's."""
+    keys = {r["target"] if r["target"] in STACKS else r["server"] for r in rows}
+    return sorted(k for k in keys if k in STACKS)
+
+
+def parity_intro(stacks: list[str]) -> list[str]:
+    stacks = "; ".join(STACKS[s][0] for s in stacks if s in STACKS)
+    return [
+        "Same-hardware TAP-server comparison: identical logical corpus, each",
+        "server deployed per its own documentation, one target under load at",
+        "a time (all stacks stay up so repetitions interleave), the identical",
+        "seeded query stream, MAXREC pinned on every request. Every target",
+        f"stack is pinned to the same 8 CPU / 8 GiB budget: {stacks}.",
+        "See `benchmarks/tap-compare/README.md` for the protocol.",
+    ]
+
+
 SCALING_INTRO = [
     "Same-hardware TAP-server resource-scaling comparison: the parity",
     "protocol's corpus, gates, query stream, formats and statistics, with",
@@ -158,6 +196,7 @@ SCALING_INTRO = [
 SERVER_CONTAINERS = {
     "egernia": ("egernia-db-1", "egernia-tap-api-1", "egernia-tap-executor-1"),
     "dachs": ("tap-compare-dachs-1",),
+    "argus": ("tap-compare-argus-1", "tap-compare-argus-db-1"),
 }
 API_CONTAINER = "egernia-tap-api-1"
 #: a rung whose window the samples cover less than this is reported without resources
@@ -255,8 +294,11 @@ def resources(run_dir: pathlib.Path, rows: list[dict]) -> dict[str, dict]:
             continue
         workers = None
         if API_CONTAINER in inside:
-            procs = max(s[3] for s in inside[API_CONTAINER])
-            workers = 1 if procs <= 1 else procs - 1  # a supervisor above one worker
+            # the steady count (the minimum: a health check adds a python
+            # process for a sample now and then); above one worker uvicorn
+            # runs a supervisor and a multiprocessing resource tracker too
+            procs = min(s[3] for s in inside[API_CONTAINER])
+            workers = 1 if procs <= 1 else max(procs - 2, 1)
         mem_mean = sum(totals) / len(totals)
         mem_peak = max(totals)
         if coverage < MIN_COVERAGE:
@@ -466,7 +508,8 @@ def render(run_dir: pathlib.Path, out_dir: pathlib.Path) -> pathlib.Path:
                         | {k: (round(v, 6) if isinstance(v, float) else v) for k, v in res.items()}
                     )
 
-    lines = [f"# {run_dir.name}", ""] + (SCALING_INTRO if scaling else PARITY_INTRO)
+    stacks = stack_keys(rows)
+    lines = [f"# {run_dir.name}", ""] + (SCALING_INTRO if scaling else parity_intro(stacks))
     for tier in tiers:
         prefix = f"t{tier}-" if tier else ""
         gates = json.loads((run_dir / f"{prefix}gates.json").read_text())
@@ -495,7 +538,8 @@ def render(run_dir: pathlib.Path, out_dir: pathlib.Path) -> pathlib.Path:
         "- The corpus is generated by egernia's own seeder; its distributions",
         "  may flatter egernia's index choices.",
         "- The query classes descend from egernia's own performance history.",
-        "- The team operates egernia expertly and DaCHS from its documentation.",
+        "- The team operates egernia expertly and the other servers from their",
+        "  documentation.",
         "- Single hardware, single run window; versions frozen at the recorded",
         "  digests.",
     ]
@@ -515,10 +559,8 @@ def render(run_dir: pathlib.Path, out_dir: pathlib.Path) -> pathlib.Path:
     if scaling:
         lines += ["benchmarks/tap-compare/scaling/run.sh"]
     else:
+        lines += [STACKS[s][1] for s in stacks]
         lines += [
-            "docker compose -f docker-compose.yml \\",
-            "    -f benchmarks/tap-compare/docker-compose.egernia-pins.yml up -d",
-            "docker compose -f benchmarks/tap-compare/docker-compose.dachs.yml up -d",
             "uv run --group tap-compare python benchmarks/tap-compare compare \\",
             f"    --targets {' '.join(targets)} --scenario <scenario>",
         ]
