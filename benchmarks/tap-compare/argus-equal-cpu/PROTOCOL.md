@@ -116,6 +116,42 @@ Those of `argus/PROTOCOL.md`, plus:
   fairness rule — but it means the variant is "egernia as documented for
   8 cores vs argus as documented", not "both tuned".
 
+## Amendment 1 — disjoint cores, a fresh argus job store, telemetry from the first rung
+
+Registered 2026-09-08 before the measurement that stands, after a first
+attempt (run `20260907T215005Z-2ee1ab59-tap-compare`, stopped at rung
+197/720 and kept unpublished) showed the shared cpuset to be unsound for
+this pairing:
+
+- **Disjoint cpusets.** The parity pins put both stacks on one shared
+  8-core cpuset on the assumption that the server not being measured is
+  idle. argus is not: after the generator closes its connections at the
+  end of a rung, Tomcat keeps executing the requests still queued behind
+  its eight pool slots, and its PostgreSQL ran at ~4.5 cores for 47 of the
+  120 measured seconds of the following egernia rung (06:11:45 rung
+  boundary; argus quiet only at 06:13:02; egernia's throughput doubled at
+  that instant). The variant therefore runs argus on cores 8–15
+  (`argus-disjoint.yml`) and egernia on 0–7: each server still has exactly
+  eight cores and 8 GiB. This also removes the smaller, opposite
+  interference (autovacuum of argus's job store during egernia rungs).
+  The first one-process run (`20260906T145338Z`) was measured on the
+  shared cpuset; egernia used ~3.2 of the 8 cores there, so the
+  contamination bounded its cells by a few percent at most — its notes
+  are amended accordingly.
+- **A fresh argus job store.** argus persists a UWS job (and its
+  parameters) for every synchronous request — 6.4 M jobs and 77 M detail
+  rows, 8.4 GiB, after the first run plus the stopped attempt. Every
+  further request pays the inserts and index maintenance on those
+  tables, so argus's own throughput degrades with its history (mix c=8:
+  23.3 rps at the first run's start, 12.7 rps in the stopped attempt).
+  Before the measurement `uws.job` and `uws.jobdetail` are truncated, so
+  argus starts in the state the first run started in.
+- **Resource telemetry** (`scaling/sample_resources.sh`) starts with the
+  run and covers every rung.
+
+Hypotheses, grid, statistics and tie rule are unchanged; the pins of
+egernia are unchanged.
+
 ## Grid and wall-clock
 
 Unchanged: 720 rungs, interleaved A,B,A,B, ≈ 31 h. Generator: four
@@ -127,7 +163,10 @@ processes on cores 24–29.
 scripts/export_obscore_snapshot.sh benchmarks/tap-compare/corpus
 docker compose -f docker-compose.yml \
     -f benchmarks/tap-compare/argus-equal-cpu/egernia-equalcpu.yml up -d
-docker compose -f benchmarks/tap-compare/docker-compose.argus.yml up -d --build
+docker compose -f benchmarks/tap-compare/docker-compose.argus.yml \
+    -f benchmarks/tap-compare/argus-equal-cpu/argus-disjoint.yml up -d --build
+docker exec tap-compare-argus-db-1 psql -U tap -d argus \
+    -c "TRUNCATE uws.jobdetail, uws.job"   # a fresh job store (Amendment 1)
 uv run --group tap-compare python benchmarks/tap-compare \
     --config-dir benchmarks/tap-compare/argus-equal-cpu \
     compare --targets egernia-local-equalcpu argus-local --scenario compare
