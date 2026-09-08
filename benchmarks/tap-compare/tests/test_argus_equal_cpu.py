@@ -73,3 +73,23 @@ def test_publisher_names_the_variants_own_pins():
     intro = "\n".join(publish.parity_intro(keys))
     assert "egernia-equalcpu.yml" in intro and "egernia-pins" not in intro
     assert publish.stack_keys([{"target": "egernia-local", "server": "egernia"}]) == ["egernia"]
+
+
+def test_the_two_stacks_run_on_disjoint_cores():
+    """Amendment 1: the server not being measured is not idle (argus keeps
+    draining its request queue after the generator leaves), so the two
+    stacks must not share a cpuset — each still gets exactly eight cores."""
+    argus = yaml.safe_load((VARIANT / "argus-disjoint.yml").read_text())["services"]
+    egernia = yaml.safe_load((VARIANT / "egernia-equalcpu.yml").read_text())["services"]
+
+    def cores(spec):
+        lo, hi = spec.split("-")
+        return set(range(int(lo), int(hi) + 1))
+
+    argus_cores = {name: cores(s["cpuset"]) for name, s in argus.items()}
+    egernia_cores = {name: cores(s["cpuset"]) for name, s in egernia.items()}
+    assert set(argus_cores) == {"argus", "argus-db"}
+    for a in argus_cores.values():
+        assert len(a) == 8
+        for e in egernia_cores.values():
+            assert len(e) == 8 and not (a & e)
