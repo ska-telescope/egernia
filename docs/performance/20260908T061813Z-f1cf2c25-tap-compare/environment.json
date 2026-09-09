@@ -1,0 +1,56 @@
+{
+  "corpus_sha256": "9f9da00f45f129bca6af68083a08a1a9e340eded89c29ad17d89eefe6cd7ff1b",
+  "git": {
+    "branch": "bench/08-argus-equal-cpu-v2",
+    "describe": "tap-compare-argus-equalcpu-prereg-v1-10-gf1cf2c2",
+    "dirty": false,
+    "sha": "f1cf2c25a61f30da9b9e4f8801d9a30ea5739f76"
+  },
+  "host": {
+    "cpu_count": 30,
+    "machine": "x86_64",
+    "platform": "Linux-6.8.0-134-generic-x86_64-with-glibc2.39",
+    "processor": "x86_64",
+    "python": "3.14.6"
+  },
+  "recorded_at": 1788848293.24109,
+  "scenario": {
+    "compare": {
+      "generator_processes": 4,
+      "ladder": [
+        1,
+        4,
+        8,
+        16,
+        32
+      ],
+      "maxrec": 100000,
+      "measure_seconds": 120,
+      "per_class": true,
+      "repetitions": 3,
+      "response_formats": [
+        "votable",
+        "csv"
+      ],
+      "warmup_seconds": 30
+    }
+  },
+  "seed": 424242,
+  "target": {
+    "argus-local": {
+      "base_url": "http://localhost/argus",
+      "name": "argus-local",
+      "notes": "CADC argus 1.0.27, the OpenCADC CAOM2 TAP service, from its vendor image images.opencadc.org/caom2/argus over PostgreSQL 17 + pgsphere (benchmarks/tap-compare/docker-compose.argus.yml), serving the exported ObsCore corpus as a plain caom2.ObsCore table in place of its Observation-join-Plane view; configuration in benchmarks/tap-compare/targets/argus/, rationale in argus/PROTOCOL.md.",
+      "portable_only": true,
+      "server": "argus"
+    },
+    "egernia-local-equalcpu": {
+      "base_url": "http://localhost:8080/tap",
+      "name": "egernia-local-equalcpu",
+      "notes": "The repository's own docker-compose.yml stack (seeded with `uv run --group dataset python -m egernia_dataset.seed`) under benchmarks/tap-compare/argus-equal-cpu/egernia-equalcpu.yml: the parity pins (cpuset 0-7, 8 GiB as 4 db / 2 api / 2 executor) with TAP_API_WORKERS=8 \u2014 one uvicorn worker per pinned core, as argus's Tomcat runs one thread per request on all eight \u2014 and PostgreSQL's parallel budget re-derived for the resulting pool total.",
+      "portable_only": true,
+      "server": "egernia"
+    }
+  },
+  "tier_mode": "flat"
+}
