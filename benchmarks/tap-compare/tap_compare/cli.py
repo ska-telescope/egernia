@@ -227,6 +227,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     _record_provenance(run, target.as_dict(), cfg, corpus_sha, args.scenario, scenario, entries)
 
     classes = sorted({e.query_class for e in entries}) if scenario.get("per_class") else [None]
+    classes = _select_classes(classes, args.classes)
     guard_max = cfg["guards"]["generator_cpu_max_fraction"]
     rows: list[dict] = []
     for response_format in scenario["response_formats"]:
@@ -276,6 +277,25 @@ def cmd_run(args: argparse.Namespace) -> int:
     run.write_json("summary.json", rows)
     log.info("run complete: %s (%d rung summaries)", run.path, len(rows))
     return 0
+
+
+def _select_classes(classes: list, wanted: list[str] | None) -> list:
+    """Restrict a per-class scenario's rungs to ``wanted`` (``--classes``).
+
+    A targeted before/after measurement of a few classes is a fraction of the
+    full grid; the rung keys and summaries are unchanged, so a restricted run
+    is read by the same tools. Nothing to restrict (a mixed-workload
+    scenario) or no request leaves the rungs alone.
+    """
+    if not wanted:
+        return classes
+    unknown = sorted(set(wanted) - set(classes))
+    if unknown:
+        raise SystemExit(
+            f"--classes names classes this scenario does not run: {', '.join(unknown)}"
+            f" (available: {', '.join(c for c in classes if c)})"
+        )
+    return [c for c in classes if c in wanted]
 
 
 def _resolve_targets(
@@ -488,6 +508,12 @@ def main(argv: list[str] | None = None) -> int:
     run_parser.add_argument("--scenario", default="smoke")
     run_parser.add_argument("--resume", help="existing run directory name to continue")
     run_parser.add_argument("--base-url", help="override the target's TAP root (local ports)")
+    run_parser.add_argument(
+        "--classes",
+        nargs="+",
+        metavar="QNN",
+        help="per-class scenarios only: run these query classes and skip the rest",
+    )
     run_parser.set_defaults(func=cmd_run)
 
     gates_parser = sub.add_parser(
