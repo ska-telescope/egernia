@@ -250,6 +250,12 @@ busiest single generator process against one core:
 | `20260906T145338Z` (argus) | 4 | 559 rps | 0.50 | ≈ 670 rps |
 | `20260905T073915Z` (scaling) | 6 | 712 rps | 0.35 | ≈ 1,220 rps |
 
+Generator capacity has already bitten once: the per-class measurement of
+PR #160's denormalised relation (the `per-class` scenario, **two** generator
+processes) topped out at 400–470 rps on the light classes Q02 and Q03 at
+c=8 with its busiest process already at 0.46–0.47 of a core — 78% of the
+guard, on a scenario whose ladder stops at c=8.
+
 Phase B is expected above 670 rps on the light classes (egernia at four
 workers over 24 cores already reached 712 rps on Q01 in the scaling run), so
 four processes would report the *generator's* ceiling as the server's and
