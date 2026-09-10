@@ -67,12 +67,27 @@ the volume cannot be put back without disturbing that work. Every class in
 this grid reads `ivoa.obscore`, so a comparison against the published
 tier-24 numbers would confound read replicas with denormalisation.
 
-**Tier 24b is therefore re-measured here**, on the same volume, under the
-published tier-24 pins (`../scaling/pins/egernia-24.yml`, unmodified). All
-three rungs see the same `ivoa.obscore` — a table, `relkind = 'r'`, recorded
+**The baseline is re-measured because the relation changed under the volume;
+the published tier 24 measured the view.** Tier 24b therefore runs here on the
+same volume, under the published tier-24 pins
+(`../scaling/pins/egernia-24.yml`, unmodified). All three rungs see the same
+`ivoa.obscore` — a table, `relkind = 'r'`, checked at every `up` and recorded
 per tier in the run's pins records — and the only comparison this protocol
-makes is between its own three rungs. The published tier-24 numbers appear in
-the report for context only, labelled as measured against the view.
+makes is between its own three rungs. The published tier-24 numbers stay in
+their own report as the view-era result, and appear here for context only,
+labelled as such.
+
+## What is measured, and what it predates
+
+The measured stack is built from a **local merge of PR #161 (`perf: route TAP
+queries to PostgreSQL read replicas`, the `TAP_QUERY_DATABASE_URL` routing)
+and PR #160 (`perf: serve ivoa.obscore from a materialised table kept current
+by triggers`)**. Neither is merged to `main`: this measurement deliberately
+predates both, because the volume already carries #160's relation and the
+tier needs #161's routing. The merge commit's sha is recorded in the run's
+`environment.json` (the harness records the checkout's git state), and the
+report names both PRs. The merge branch is local to the measurement and is
+not proposed for review on its own; #160 and #161 are reviewed as themselves.
 
 ## The three rungs
 
