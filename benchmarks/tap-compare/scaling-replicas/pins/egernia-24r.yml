@@ -1,0 +1,163 @@
+# egernia at the 24 CPU / 24 GiB budget with the query path on read replicas
+# (PROTOCOL.md, tier 24r). The tier-24 budget exactly — same cores, same
+# memory total, same api/executor limits — with the database's 12 GiB split
+# over one primary and three streaming-replication standbys, and the API's
+# queries pointed at the standbys.
+#
+#   docker compose -f docker-compose.yml \
+#       -f benchmarks/tap-compare/scaling-replicas/pins/egernia-24r.yml \
+#       up -d --no-build db db-standby-1 db-standby-2 db-standby-3 tap-api tap-executor
+#
+# All six containers share the cpuset 0-23, as the tier-24 pins have the three
+# serving containers share theirs; the load generator keeps 24-29.
+#
+# PostgreSQL follows docs/postgres-performance.md "Sizing the server to its
+# container": shared_buffers 1/4 and effective_cache_size 3/4 of the
+# container's limit. The parallel budget is sized per server to the pool that
+# can reach it, which is what differs from a single-server tier:
+#   - each standby: the whole query pool may land on one of them (libpq
+#     balances at random, and two standbys may be down), so
+#     max_parallel_workers >= (api 8 workers x 8 + executor 8) x 2 = 144,
+#     max_worker_processes = 152.
+#   - the primary: no user query executes there at all — TAP_QUERY_DATABASE_URL
+#     names only the standbys, and this grid uploads nothing — so it keeps the
+#     server's default parallel budget (8/8). It serves TAP_SCHEMA reads,
+#     uws.jobs, and three WAL senders.
+# A standby refuses to start if max_worker_processes (or max_connections) is
+# lower than the primary's, which the numbers above respect in the safe
+# direction.
+services:
+  db:
+    cpuset: "0-23"
+    mem_limit: 3g
+    command:
+      - postgres
+      # the replication role's rules are the only reason this file replaces
+      # the data directory's pg_hba.conf: the image writes no `replication`
+      # entry for anything but localhost, and the standbys are containers
+      - -c
+      - hba_file=/etc/postgresql/pg_hba.conf
+      - -c
+      - shared_buffers=768MB
+      - -c
+      - effective_cache_size=2304MB
+      - -c
+      - work_mem=64MB
+      - -c
+      - max_parallel_workers=8
+      - -c
+      - max_worker_processes=8
+      # Keep enough WAL on disk to cover three concurrent clones and a
+      # standby's catch-up. Observed on this box with the default (0): the
+      # primary recycled a segment while pg_basebackup's own WAL streamer
+      # still wanted it ("requested WAL segment ... has already been
+      # removed"), and a standby restarted after a single-server tier hit the
+      # same error and then served stale data from a stalled recovery while
+      # still answering pg_isready. A bounded retention setting fixes both
+      # without a replication slot, which is the thing that would retain WAL
+      # forever if it were forgotten on the shared seeded volume.
+      - -c
+      - wal_keep_size=2GB
+    volumes:
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+      - pgdata:/var/lib/postgresql/data
+      - ./benchmarks/tap-compare/scaling-replicas/pins/pg_hba-primary.conf:/etc/postgresql/pg_hba.conf:ro
+
+  db-standby-1: &standby
+    # the repository's own db image (pgsphere), which a physical replica needs
+    # as much as the primary does: the extension's catalog rows arrive over
+    # replication, the .so has to be in the image
+    image: egernia-db:latest
+    user: postgres
+    cpuset: "0-23"
+    mem_limit: 3g
+    environment:
+      PGDATA: /var/lib/postgresql/data/pgdata
+      PGPASSWORD: tap
+    # First start clones the primary with pg_basebackup (-R writes
+    # standby.signal and primary_conninfo, so nothing else configures the
+    # standby); later starts find a data directory and go straight to
+    # recovery. No replication slot on purpose: a forgotten slot would make
+    # the primary retain WAL for a standby that no longer exists, and this
+    # runs against the shared seeded volume.
+    command:
+      - bash
+      - -c
+      - |
+        set -e
+        if [ ! -s "$$PGDATA/PG_VERSION" ]; then
+          echo "cloning the primary into $$PGDATA"
+          rm -rf "$$PGDATA"
+          install -d -m 700 "$$PGDATA"
+          # Retried: a failed clone removes its own data directory, so a
+          # second attempt starts clean, and three clones racing one primary
+          # is a transient worth surviving rather than a run to restart.
+          for attempt in 1 2 3; do
+            pg_basebackup -h db -p 5432 -U tap -D "$$PGDATA" -Fp -Xs -R -c fast -P && break
+            echo "clone attempt $$attempt failed; retrying in 10s"
+            sleep 10
+          done
+          [ -s "$$PGDATA/PG_VERSION" ] || { echo "could not clone the primary"; exit 1; }
+        fi
+        exec postgres \
+          -c hot_standby=on \
+          -c hot_standby_feedback=on \
+          -c shared_buffers=768MB \
+          -c effective_cache_size=2304MB \
+          -c work_mem=64MB \
+          -c max_parallel_workers=144 \
+          -c max_worker_processes=152
+    volumes:
+      - pgdata-standby-1:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tap -d tap"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db-standby-2:
+    <<: *standby
+    volumes:
+      - pgdata-standby-2:/var/lib/postgresql/data
+
+  db-standby-3:
+    <<: *standby
+    volumes:
+      - pgdata-standby-3:/var/lib/postgresql/data
+
+  tap-api:
+    cpuset: "0-23"
+    mem_limit: 6g
+    environment:
+      # 8 workers, one per two of the tier's cores: the tier-24 stack peaked
+      # at 11 of its 24 cores with 4 workers, so the API is the next ceiling
+      # once the database is no longer one instance. Part of the treatment,
+      # not a control — see PROTOCOL.md, which measures the 8-worker
+      # single-server shape (24w) to tell the two changes apart.
+      TAP_API_WORKERS: "8"
+      TAP_QUERY_DATABASE_URL: postgresql://tap:tap@db-standby-1:5432,db-standby-2:5432,db-standby-3:5432/tap?target_session_attrs=read-only&load_balance_hosts=random
+    depends_on:
+      db:
+        condition: service_healthy
+      db-standby-1:
+        condition: service_healthy
+      db-standby-2:
+        condition: service_healthy
+      db-standby-3:
+        condition: service_healthy
+
+  tap-executor:
+    cpuset: "0-23"
+    mem_limit: 6g
+    environment:
+      # idle in this grid (sync rungs only); it keeps the deployable shape,
+      # including the split query path
+      TAP_QUERY_DATABASE_URL: postgresql://tap:tap@db-standby-1:5432,db-standby-2:5432,db-standby-3:5432/tap?target_session_attrs=read-only&load_balance_hosts=random
+
+volumes:
+  pgdata-standby-1:
+  pgdata-standby-2:
+  pgdata-standby-3:

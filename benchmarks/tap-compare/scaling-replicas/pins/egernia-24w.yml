@@ -1,0 +1,37 @@
+# The control for the read-replica tier (PROTOCOL.md, tier 24w): the published
+# tier-24 stack — one PostgreSQL, 12 GiB, the whole 24-core cpuset — with the
+# API's worker count raised from 4 to 8, and nothing else changed. It tells
+# apart the two things tier 24r changes at once: more API workers, and a
+# database that is no longer one instance.
+#
+#   docker compose -f docker-compose.yml \
+#       -f benchmarks/tap-compare/scaling-replicas/pins/egernia-24w.yml \
+#       up -d --no-build db tap-api tap-executor
+#
+# PostgreSQL follows docs/postgres-performance.md "Sizing the server to its
+# container" with the pool total re-derived for 8 workers:
+# max_parallel_workers >= (8 x 8 + 8) x 2 = 144, max_worker_processes = 152.
+services:
+  db:
+    cpuset: "0-23"
+    mem_limit: 12g
+    command:
+      - postgres
+      - -c
+      - shared_buffers=3GB
+      - -c
+      - effective_cache_size=9GB
+      - -c
+      - work_mem=64MB
+      - -c
+      - max_parallel_workers=144
+      - -c
+      - max_worker_processes=152
+  tap-api:
+    cpuset: "0-23"
+    mem_limit: 6g
+    environment:
+      TAP_API_WORKERS: "8"
+  tap-executor:
+    cpuset: "0-23"
+    mem_limit: 6g
