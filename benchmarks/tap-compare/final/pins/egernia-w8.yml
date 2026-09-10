@@ -1,0 +1,41 @@
+# egernia in phase B of the final three-way comparison (../PROTOCOL.md):
+# argus-equal-cpu/egernia-equalcpu.yml's rule, unchanged — phase A's pins
+# with one uvicorn worker per pinned core (docs/deployment.md, "Serving
+# concurrent queries": a worker saturates at ~one core), and PostgreSQL's
+# parallel budget re-derived by docs/postgres-performance.md's rule for the
+# resulting pools:
+#   (8 API workers x 8 + executor 8) connections = 72 (< max_connections 100)
+#   max_parallel_workers  >= 72 x 2 = 144
+#   max_worker_processes  =  144 + 8 = 152
+# shared_buffers (1/4) and effective_cache_size (3/4) of the db's 4 GiB and
+# work_mem are docker-compose.yml's, unchanged. The memory split is phase
+# A's: 4 db / 2 api / 2 executor (eight workers' documented floor is
+# ~140 MiB x 8 + 8 x 8 x 2.5 MiB = 1.28 GiB, inside the API's 2 GiB).
+#
+#   docker compose -f docker-compose.yml \
+#       -f benchmarks/tap-compare/final/pins/egernia-w8.yml \
+#       up -d --no-build db tap-api tap-executor
+services:
+  db:
+    cpuset: "0-7"
+    mem_limit: 4g
+    command:
+      - postgres
+      - -c
+      - shared_buffers=1GB
+      - -c
+      - effective_cache_size=3GB
+      - -c
+      - work_mem=64MB
+      - -c
+      - max_parallel_workers=144
+      - -c
+      - max_worker_processes=152
+  tap-api:
+    cpuset: "0-7"
+    mem_limit: 2g
+    environment:
+      TAP_API_WORKERS: "8"
+  tap-executor:
+    cpuset: "0-7"
+    mem_limit: 2g
