@@ -27,6 +27,14 @@ GEN_CPUS=${GEN_CPUS:-24-29}
 RUN_NAME=${RUN_NAME:-}
 RESTORE=${RESTORE:-1}
 ALLOW_NEIGHBOURS=${ALLOW_NEIGHBOURS:-0}
+SAMPLER_PID=""
+stop_sampler() {
+    [ -n "$SAMPLER_PID" ] || return 0
+    kill "$SAMPLER_PID" 2>/dev/null || true
+    echo "$(date -u +%FT%TZ) PROGRESS sampler stopped pid=$SAMPLER_PID"
+    SAMPLER_PID=""
+}
+trap stop_sampler EXIT INT TERM
 
 # Explicit compose project names: the volumes and container names this
 # benchmark's data lives in belong to the projects `egernia` (the repo root)
@@ -63,6 +71,27 @@ DACHS_CPUSET=16-23
 NEIGHBOUR_CPU_PERCENT_MAX=50
 
 log() { echo "$(date -u +%FT%TZ) $*"; }
+fail_early() { echo "FAIL $*" >&2; exit 1; }
+# The generator's cores must be disjoint from all three server cpusets: a
+# generator sharing a measured stack's cores reports its own contention as
+# the server's. An override is validated here, never trusted.
+GEN_CORES=$(python3 -c '
+import sys
+
+def cores(spec):
+    out = set()
+    for part in spec.split(","):
+        lo, _, hi = part.partition("-")
+        out.update(range(int(lo), int(hi or lo) + 1))
+    return out
+
+generator, servers = cores(sys.argv[1]), set().union(*map(cores, sys.argv[2:]))
+print(" ".join(str(c) for c in sorted(generator)))
+sys.exit(1 if not generator or (generator & servers) else 0)
+' "$GEN_CPUS" "$EGERNIA_CPUSET" "$ARGUS_CPUSET" "$DACHS_CPUSET") \
+    || fail_early "GEN_CPUS='$GEN_CPUS' is empty, malformed, or overlaps a server" \
+        "cpuset ($EGERNIA_CPUSET, $ARGUS_CPUSET, $DACHS_CPUSET)"
+
 fail() { log "FAIL $*"; exit 1; }
 expect() { [ "$2" = "$3" ] || fail "$1: got '$2', expected '$3'"; }
 
@@ -111,24 +140,32 @@ check_cpuset() {
     done
 }
 
-# A foreign container with no cpuset floats onto the pinned cores. Ours are
-# pinned; anything else that is busy is a measurement hazard, not noise.
+# Every one of the host's 30 cores belongs to a server stack or to the
+# generator, so a *pinned* foreign container is no safer than an unpinned one
+# — it is pinned onto somebody's cores. Any busy container that is not ours
+# is therefore a measurement hazard, whatever its cpuset says. HOT is kept
+# for the record (record_host), so a run measured over a hot neighbour is
+# never indistinguishable from a clean one.
+HOT=""
 check_neighbours() {
-    local ours=" $EGERNIA_CONTAINERS $DACHS_CONTAINERS $ARGUS_CONTAINERS " hot=""
-    while read -r name cpu; do
+    local ours=" $EGERNIA_CONTAINERS $DACHS_CONTAINERS $ARGUS_CONTAINERS "
+    HOT=""
+    while read -r name cpu cpuset; do
         case $ours in *" $name "*) continue ;; esac
-        if [ -n "$(docker inspect "$name" --format '{{.HostConfig.CpusetCpus}}')" ]; then
-            continue  # pinned: it cannot reach a measured stack's cores
-        fi
         if awk -v c="${cpu%\%}" -v max="$NEIGHBOUR_CPU_PERCENT_MAX" \
             'BEGIN {exit !(c > max)}'; then
-            hot="$hot $name($cpu)"
+            HOT="$HOT $name($cpu on cpuset '${cpuset:-none}')"
         fi
-    done < <(docker stats --no-stream --format '{{.Name}} {{.CPUPerc}}')
-    log "PROGRESS neighbours hot='${hot:-none}'"
-    if [ -n "$hot" ] && [ "$ALLOW_NEIGHBOURS" != 1 ]; then
-        fail "unpinned foreign containers are burning CPU:$hot — pin or stop them," \
-            "or set ALLOW_NEIGHBOURS=1 to measure anyway (recorded in the report)"
+    done < <(docker stats --no-stream --format '{{.Name}} {{.CPUPerc}}' \
+        | while read -r n c; do
+            printf '%s %s %s\n' "$n" "$c" \
+                "$(docker inspect "$n" --format '{{.HostConfig.CpusetCpus}}' 2>/dev/null)"
+          done)
+    log "PROGRESS neighbours hot='${HOT:-none}'"
+    if [ -n "$HOT" ] && [ "$ALLOW_NEIGHBOURS" != 1 ]; then
+        fail "foreign containers are burning CPU:$HOT — pin them off the" \
+            "benchmark's cores or stop them, or set ALLOW_NEIGHBOURS=1 to measure" \
+            "anyway (the override and the neighbours are then recorded in the report)"
     fi
 }
 
@@ -142,12 +179,19 @@ up_egernia() {
         "$(pg_egernia "select relkind from pg_class where oid = 'ivoa.obscore'::regclass")" r
     expect "egernia foreign keys" "$(pg_egernia "select count(*) from pg_constraint \
         where contype = 'f' and connamespace = 'srcnet'::regnamespace")" $EXPECTED_FKS
-    # one database: a replica URL would make this a different experiment
-    [ -z "$(docker inspect egernia-tap-api-1 --format '{{join .Config.Env "\n"}}' \
-        | grep '^TAP_QUERY_DATABASE_URL=' || true)" ] \
-        || fail "egernia has TAP_QUERY_DATABASE_URL set; this protocol measures one database"
-    for setting in shared_buffers effective_cache_size max_parallel_workers \
-        max_worker_processes; do
+    # One database: a replica URL would make this a different experiment.
+    # PR #161 routes query execution in *both* query-serving containers, so
+    # both are checked — an override on the executor alone would send async
+    # queries to a standby while the API still looked innocent.
+    for container in egernia-tap-api-1 egernia-tap-executor-1; do
+        [ -z "$(docker inspect "$container" --format '{{join .Config.Env "\n"}}' \
+            | grep '^TAP_QUERY_DATABASE_URL=' || true)" ] \
+            || fail "$container has TAP_QUERY_DATABASE_URL set;" \
+                "this protocol measures one database"
+    done
+    # work_mem included: the pins promise it, so the driver checks it
+    for setting in shared_buffers effective_cache_size work_mem \
+        max_parallel_workers max_worker_processes; do
         expect "egernia $setting" "$(pg_egernia "show $setting")" \
             "$(promised "$EGERNIA_SETTINGS" $setting)"
     done
@@ -197,6 +241,32 @@ up_argus() {
     check_cpuset $ARGUS_CPUSET $ARGUS_CONTAINERS
 }
 
+# The host as the driver found it: the generator's validated affinity, the
+# neighbour verdict, whether it was overridden, and every container's CPU.
+# `publish` copies pins/ into the report, so a run measured over a hot
+# neighbour, or with a non-default generator affinity, says so in the report.
+record_host() {
+    local dir="$SUITE/results/$RUN_NAME/pins"
+    mkdir -p "$dir"
+    {
+        echo "# $(date -u +%FT%TZ) phase $PHASE, host"
+        echo "generator_cpus=$GEN_CPUS"
+        echo "generator_cores=$GEN_CORES"
+        echo "generator_processes=$(awk -v s="  $SCENARIO:" '$0 == s {f = 1} \
+            f && /generator_processes:/ {print $2; exit}' "$HERE/scenarios.yaml")"
+        echo "egernia_cpuset=$EGERNIA_CPUSET argus_cpuset=$ARGUS_CPUSET dachs_cpuset=$DACHS_CPUSET"
+        echo "neighbour_cpu_percent_max=$NEIGHBOUR_CPU_PERCENT_MAX"
+        echo "allow_neighbours=$ALLOW_NEIGHBOURS"
+        echo "neighbours_hot=${HOT:-none}"
+        echo "## docker stats (all containers, name / cpu / mem / cpuset)"
+        docker stats --no-stream --format '{{.Name}} {{.CPUPerc}} {{.MemUsage}}' \
+            | while read -r n rest; do
+                printf '%s %s cpuset=%s\n' "$n" "$rest" \
+                    "$(docker inspect "$n" --format '{{.HostConfig.CpusetCpus}}' 2>/dev/null)"
+              done
+    } > "$dir/$PHASE-host.txt"
+}
+
 # The pins as applied, per stack, into the run directory.
 record() {
     local server=$1 containers=$2 dir="$SUITE/results/$RUN_NAME/pins"
@@ -224,6 +294,21 @@ print(json.dumps([{k: h[k] for k in ("CpusetCpus", "NanoCpus", "Memory")}
     } > "$dir/$PHASE-$server.txt"
 }
 
+# The interlock. This driver's first act is to recreate three stacks, which
+# rewrites the pins of whatever is running on them; another measurement in
+# flight would be silently contaminated (it happened on 2026-09-10, to the
+# read-replica tier's run). So: refuse while any other tap-compare
+# measurement holds the box, and let ALLOW_CONCURRENT=1 override for a
+# deliberate resume.
+others=$(pgrep -af 'benchmarks/tap-compare .*(compare|--scenario)' \
+    | grep -v "^$$ " | grep -v "$SCENARIO" || true)
+if [ -n "$others" ] && [ "${ALLOW_CONCURRENT:-0}" != 1 ]; then
+    log "$others"
+    fail_early "another tap-compare measurement is running (above): recreating the" \
+        "stacks now would rewrite its pins mid-rung. Wait for it, or set" \
+        "ALLOW_CONCURRENT=1 if you know it is finished."
+fi
+
 log "PROGRESS start phase=$PHASE scenario=$SCENARIO targets='$TARGETS' generator_cpus=$GEN_CPUS"
 expect "corpus sha256" "$(sha256sum "$SUITE/corpus/obscore.csv" | cut -d' ' -f1)" \
     "$EXPECTED_CORPUS_SHA"
@@ -240,16 +325,23 @@ if [ -z "$RUN_NAME" ]; then
 else
     tap compare --targets $TARGETS --scenario "$SCENARIO" --gates-only --resume "$RUN_NAME"
 fi
+record_host
 record egernia "$EGERNIA_CONTAINERS"
 record dachs "$DACHS_CONTAINERS"
 record argus "$ARGUS_CONTAINERS"
 
-# resource telemetry from the first rung (scaling/PROTOCOL.md, amendment 1)
+# Resource telemetry from the first rung (scaling/PROTOCOL.md, amendment 1).
+# The sampler loops forever, so this phase owns the one it starts and stops it
+# on every exit path: two phases would otherwise leave two samplers appending
+# to their old files and burning the generator's cores.
 SAMPLES="$SUITE/results/$RUN_NAME/resources.jsonl"
-if ! pgrep -f "sample_resources.sh $SAMPLES" > /dev/null; then
-    nohup setsid taskset -c "$GEN_CPUS" "$SUITE/scaling/sample_resources.sh" "$SAMPLES" \
+if pgrep -f "sample_resources.sh $SAMPLES" > /dev/null; then
+    log "PROGRESS sampler already running for $SAMPLES (not ours; left alone)"
+else
+    taskset -c "$GEN_CPUS" "$SUITE/scaling/sample_resources.sh" "$SAMPLES" \
         > /dev/null 2>&1 &
-    log "PROGRESS sampler -> $SAMPLES"
+    SAMPLER_PID=$!
+    log "PROGRESS sampler pid=$SAMPLER_PID -> $SAMPLES"
 fi
 
 # an untimed pass per server, so no first repetition pays for a cold cache
@@ -267,5 +359,6 @@ if [ "$RESTORE" != 1 ]; then
     compose_dachs stop
     compose_argus stop
 fi
+stop_sampler
 log "PROGRESS complete phase=$PHASE run=$RUN_NAME"
 log "publish with: uv run --group tap-compare python benchmarks/tap-compare publish --run $RUN_NAME"
