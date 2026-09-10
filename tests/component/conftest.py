@@ -83,12 +83,20 @@ def tap_service(database_url, tmp_path_factory):
 
 
 @contextlib.contextmanager
-def running_services(database_url, results_dir, log_tag: str = "", **extra_env):
-    """The API and executor as subprocesses, on a free port, until the caller
-    is done with them.
+def running_services(
+    database_url, results_dir, log_tag: str = "", executor: bool = True, **extra_env
+):
+    """The API and (by default) the executor as subprocesses, on a free port,
+    until the caller is done with them.
 
     ``extra_env`` is how a test module gets a stack configured differently —
     a second pool for the query path, say — without a second copy of this.
+
+    ``executor=False`` is for a second stack in the same session. Executors
+    claim from one ``uws.jobs`` with ``FOR UPDATE SKIP LOCKED`` and each
+    writes results into its own ``TAP_RESULTS_DIR``, so two of them against
+    one test database race for every async job in the run and the loser's API
+    answers 404 for a job that did complete. One executor per database.
     """
     port = _free_port()
     base_url = f"http://127.0.0.1:{port}/tap"
@@ -116,7 +124,7 @@ def running_services(database_url, results_dir, log_tag: str = "", **extra_env):
         open(logs_dir / f"tap-api{log_tag}.log", "wb") as api_log,
         open(logs_dir / f"tap-executor{log_tag}.log", "wb") as executor_log,
     ):
-        api = subprocess.Popen(
+        api_process = subprocess.Popen(
             [
                 sys.executable,
                 "-m",
@@ -134,13 +142,17 @@ def running_services(database_url, results_dir, log_tag: str = "", **extra_env):
             stdout=api_log,
             stderr=subprocess.STDOUT,
         )
-        executor = subprocess.Popen(
-            [sys.executable, "-m", "egernia_executor.worker"],
-            env=env,
-            cwd=REPO_ROOT,
-            stdout=executor_log,
-            stderr=subprocess.STDOUT,
-        )
+        processes = [api_process]
+        if executor:
+            processes.append(
+                subprocess.Popen(
+                    [sys.executable, "-m", "egernia_executor.worker"],
+                    env=env,
+                    cwd=REPO_ROOT,
+                    stdout=executor_log,
+                    stderr=subprocess.STDOUT,
+                )
+            )
         try:
             deadline = time.monotonic() + 30
             while True:
@@ -151,14 +163,14 @@ def running_services(database_url, results_dir, log_tag: str = "", **extra_env):
                     pass  # connection refused while the service boots: keep polling
                 if time.monotonic() > deadline:
                     raise RuntimeError("tap-api did not become available")
-                if api.poll() is not None or executor.poll() is not None:
+                if any(proc.poll() is not None for proc in processes):
                     raise RuntimeError("a service process exited during startup")
                 time.sleep(0.3)
             yield base_url
         finally:
-            for proc in (api, executor):
+            for proc in processes:
                 proc.terminate()
-            for proc in (api, executor):
+            for proc in processes:
                 try:
                     proc.wait(timeout=10)
                 except subprocess.TimeoutExpired:

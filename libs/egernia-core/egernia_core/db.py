@@ -98,10 +98,24 @@ def pinned_url(conn) -> str:
     whichever host comes next rather than the one running the statement. The
     executor's abort path signals that backend, so it needs a URL that can
     only reach that server.
+
+    Pinned by **address**, not by name. The name would not be enough: a
+    read-only Service, or any DNS name that resolves to several standbys,
+    resolves again on the next connection, so a cancel could land on a
+    different standby than the one running the statement — and with a
+    multi-host DSN libpq reports the entry it actually used, but that entry
+    can itself be such a name. ``conn.info.hostaddr`` is the address libpq
+    reached; both are passed, so libpq connects to the address while still
+    verifying TLS and SASL against the name, which is what keeps
+    ``sslmode=verify-full`` working. A Unix-socket connection reports no
+    address and keeps its socket directory as the host.
     """
     return conninfo.make_conninfo(
         settings.query_database_url or settings.database_url,
         host=conn.info.host,
+        # make_conninfo skips a None; an empty hostaddr (Unix socket) must not
+        # reach libpq as an empty string
+        hostaddr=conn.info.hostaddr or None,
         port=conn.info.port,
     )
 

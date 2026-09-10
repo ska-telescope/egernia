@@ -2,11 +2,19 @@
 
 There is no standby here: the second pool points at the same server under a
 different DSN, which is enough to prove what a standby cannot be relied on to
-prove in CI — that the services boot with the setting, that the sync query
-really leaves through the query pool while an upload-bearing one does not (the
-per-pool metrics say which), that an async job still completes, and that the
-URL the abort path pins is one libpq accepts. Replication itself is verified
-by hand against benchmarks/tap-compare/scaling-replicas; see the PR.
+prove in CI — that the API boots with the setting, that the sync query really
+leaves through the query pool while an upload-bearing one does not (the
+per-pool metrics say which), and that the URL the abort path pins is one libpq
+accepts.
+
+This stack runs no executor: executors claim from one ``uws.jobs`` and write
+results into their own ``TAP_RESULTS_DIR``, so a second one would race the
+session's for every async job in the run (which is exactly how this module
+first failed in CI). The async path's routing is covered by the unit tests,
+and was verified by hand against three real standbys — job COMPLETED, then an
+ABORT mid-scan leaving no backend behind on any of them; see the PR.
+Replication itself is verified there too
+(benchmarks/tap-compare/scaling-replicas).
 """
 
 from dataclasses import replace
@@ -14,7 +22,6 @@ from dataclasses import replace
 import httpx
 import psycopg
 import pytest
-import pyvo
 from egernia_core import db
 
 from .conftest import running_services
@@ -47,6 +54,7 @@ def split_service(database_url, query_url, tmp_path_factory):
         database_url,
         tmp_path_factory.mktemp("results-replicas"),
         log_tag="-replicas",
+        executor=False,
         TAP_QUERY_DATABASE_URL=query_url,
     ) as base_url:
         yield base_url
@@ -96,15 +104,6 @@ def test_an_upload_query_stays_on_the_primary(split_service):
     after = _waits(split_service)
     assert after["query"] == before["query"]
     assert after["primary"] > before["primary"]
-
-
-def test_an_async_job_completes_with_a_split_query_path(split_service):
-    job = pyvo.dal.TAPService(split_service).submit_job(QUERY)
-    job.run()
-    job.wait(phases=["COMPLETED", "ERROR", "ABORTED"], timeout=60)
-    assert job.phase == "COMPLETED"
-    assert len(job.fetch_result().to_table()) == 8
-    job.delete()
 
 
 def test_the_pinned_abort_url_is_one_libpq_accepts(query_url, monkeypatch):

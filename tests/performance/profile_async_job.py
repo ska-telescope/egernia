@@ -25,7 +25,7 @@ import statistics
 import sys
 import time
 
-from egernia_core import uws
+from egernia_core import db, uws
 from egernia_core.config import settings
 from egernia_core.db import StreamedRows
 from egernia_core.db import connection as db_connection
@@ -113,7 +113,9 @@ def _run_staged(job, use_stored):
             conn.execute("SET LOCAL jit = off")
             conn.execute(f"SET LOCAL ROLE {settings.query_role}")
         with _stage(timings, "watchdog start"):
-            stack.enter_context(worker._AbortWatchdog(job_id, pid))
+            # this profile runs everything on the primary, and the watchdog
+            # signals whichever server its connection reached — the same one
+            stack.enter_context(worker._AbortWatchdog(job_id, pid, db.pinned_url(conn)))
         with _stage(timings, "execute (first chunk)"), conn.cursor() as cur:
             rows = StreamedRows(cur, sql, chunk_rows=5000)
             stack.enter_context(contextlib.closing(rows))
