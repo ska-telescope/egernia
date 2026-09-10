@@ -118,3 +118,23 @@ def test_the_driver_runs_classes_the_corpus_has():
         assert classes <= known, (name, classes - known)
         # the mixed workload is the headline of every rung of this protocol
         assert "mix" in classes, name
+
+
+def test_the_driver_refuses_to_start_beside_another_measurement():
+    """Read rather than executed, deliberately: the incident that made this
+    guard necessary came from a test that executed a driver, and a test that
+    runs this one would recreate the stacks it is meant to protect.
+
+    The property asserted is not just that the check exists but that it runs
+    *before* the first tier, since a guard after the grid has started would
+    protect nothing.
+    """
+    script = (REPLICAS / "run.sh").read_text()
+    before_measuring, _, _ = script.partition('log "PROGRESS start')
+    assert before_measuring != script, "the guards must precede the first tier"
+    # other tap-compare processes, excluding this driver's own process group
+    assert "pgid" in before_measuring
+    assert "benchmarks\\/tap-compare" in before_measuring
+    assert "another tap-compare measurement is alive" in before_measuring
+    # and the unpinned-neighbour guard is still there beside it
+    assert "toolkit-(4|6)" in before_measuring

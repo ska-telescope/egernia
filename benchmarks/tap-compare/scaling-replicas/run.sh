@@ -258,6 +258,21 @@ if docker ps --filter name=toolkit --format '{{.Names}}' | grep -qE 'toolkit-(4|
     fail "toolkit-4/toolkit-6 are running: unpinned neighbours burning 1-2 cores (PROTOCOL.md)"
 fi
 
+# Refuse to start beside another tap-compare measurement. This protocol's
+# first run was abandoned at 35 rungs on 2026-09-10 because a concurrent
+# driver recreated all three stacks onto another protocol's pins mid-grid
+# (egernia to cpuset 0-7 with one API worker); three rungs measured a shape
+# nobody had asked for, and a run with silently invalid rungs in it is worse
+# than no run. Anything outside this driver's own process group counts,
+# including a sampler left over from an earlier run — stop it first.
+MY_PGID=$(ps -o pgid= -p $$ | tr -d ' ')
+OTHERS=$(ps -eo pid,pgid,args |
+    awk -v me="$MY_PGID" '$2 != me && /benchmarks\/tap-compare/ && !/awk/ {print $1}')
+if [ -n "$OTHERS" ]; then
+    ps -o pid,etime,args -p "$(echo "$OTHERS" | tr '\n' ',' | sed 's/,$//')" || true
+    fail "another tap-compare measurement is alive (PIDs above); concurrent drivers recreate each other's stacks mid-grid and invalidate rungs"
+fi
+
 log "PROGRESS start scenario=$SCENARIO tiers='$TIERS' generator_cpus=$GEN_CPUS"
 for tier in $TIERS; do
     up "$tier"
