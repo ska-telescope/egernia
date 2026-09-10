@@ -70,6 +70,24 @@ services() {
     fi
 }
 standbys() { echo "egernia-db-standby-1-1 egernia-db-standby-2-1 egernia-db-standby-3-1"; }
+# Drop the standbys and their data directories, so the next `up 24r` clones.
+# The volume names come from the containers rather than being spelled out, so
+# a compose project under another name cannot make this remove the wrong
+# volume — and the seeded `pgdata` is never touched, only what is mounted at
+# the standbys' data directory.
+remove_standbys() {
+    local volumes=""
+    for c in $(standbys); do
+        volumes="$volumes $(docker inspect "$c" --format \
+            '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql/data"}}{{.Name}}{{end}}{{end}}' \
+            2>/dev/null || true)"
+    done
+    # shellcheck disable=SC2046
+    compose 24r rm -sf $(services 24r | tr " " "\n" | grep standby) > /dev/null 2>&1 || true
+    for v in $volumes; do
+        case $v in *pgdata-standby-*) docker volume rm "$v" > /dev/null 2>&1 || true ;; esac
+    done
+}
 pg() { docker exec "$1" psql -U tap -d tap -Atc "$2"; }
 # setting <tier> <name> [standby]: what the pins promise for that server. The
 # standbys' flags live in their own command block with different values from
@@ -99,7 +117,16 @@ wait_tap() {
 up() {
     local tier=$1
     log "PROGRESS tier=$tier phase=up"
-    if [ "$tier" != 24r ]; then
+    if [ "$tier" = 24r ]; then
+        # Always clone from the primary as it is now. With no replication
+        # slots (PROTOCOL.md), a standby that sat out a single-server tier can
+        # come back too far behind to catch up — "requested WAL segment
+        # 0000...  has already been removed", observed on this box — and it
+        # then answers pg_isready while serving stale data from a stalled
+        # recovery. Cloning is ~2 min against 6.5 h of grid, so it is not
+        # worth making the run depend on a standby's catch-up.
+        remove_standbys
+    else
         # A standby left running through a single-server tier would keep its
         # memory and land in the resource sampler's output, which sums every
         # egernia-* container as the server's figure. The single-server tiers
