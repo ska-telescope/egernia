@@ -299,7 +299,8 @@ resumed for the measurement):
   `bc4110500860dfdf09377bf1c1442220c424a8edd58217e21d78734b009f6007` and the
   row count 500,096 in all three servers — `ivoa.obscore` on egernia (a
   table, `relkind = 'r'`, PR #160) and on DaCHS (its obscore view), and
-  `caom2."ObsCore"` on argus (a table). The driver checks all of it, plus
+  `caom2.obscore` on argus (a table — argus's own DDL folds the identifier
+  its code writes as `caom2.ObsCore`). The driver checks all of it, plus
   every cpuset, every promised PostgreSQL setting via `SHOW`, the API's
   worker count in both the container's environment and its process count,
   egernia's 16 `srcnet` foreign keys, argus's emptied job store, and the
