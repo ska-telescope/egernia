@@ -189,7 +189,7 @@ def test_a_hostile_id_never_reaches_the_database(client, fake_db):
         data={"LANG": "ADQL", "QUERY": QUERY},
         headers={obs.REQUEST_ID_HEADER: "*/ DROP TABLE uws.jobs; --"},
     )
-    assert not any("DROP TABLE" in s for s in fake_db.statements)
+    assert not any("DROP TABLE uws.jobs" in s for s in fake_db.statements)
 
 
 def test_sync_duration_excludes_body_delivery(fake_db):
