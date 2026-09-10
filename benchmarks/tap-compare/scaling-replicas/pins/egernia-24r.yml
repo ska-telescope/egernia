@@ -47,6 +47,17 @@ services:
       - max_parallel_workers=8
       - -c
       - max_worker_processes=8
+      # Keep enough WAL on disk to cover three concurrent clones and a
+      # standby's catch-up. Observed on this box with the default (0): the
+      # primary recycled a segment while pg_basebackup's own WAL streamer
+      # still wanted it ("requested WAL segment ... has already been
+      # removed"), and a standby restarted after a single-server tier hit the
+      # same error and then served stale data from a stalled recovery while
+      # still answering pg_isready. A bounded retention setting fixes both
+      # without a replication slot, which is the thing that would retain WAL
+      # forever if it were forgotten on the shared seeded volume.
+      - -c
+      - wal_keep_size=2GB
     volumes:
       - ./db/init:/docker-entrypoint-initdb.d:ro
       - pgdata:/var/lib/postgresql/data
@@ -78,7 +89,15 @@ services:
           echo "cloning the primary into $$PGDATA"
           rm -rf "$$PGDATA"
           install -d -m 700 "$$PGDATA"
-          pg_basebackup -h db -p 5432 -U tap -D "$$PGDATA" -Fp -Xs -R -c fast -P
+          # Retried: a failed clone removes its own data directory, so a
+          # second attempt starts clean, and three clones racing one primary
+          # is a transient worth surviving rather than a run to restart.
+          for attempt in 1 2 3; do
+            pg_basebackup -h db -p 5432 -U tap -D "$$PGDATA" -Fp -Xs -R -c fast -P && break
+            echo "clone attempt $$attempt failed; retrying in 10s"
+            sleep 10
+          done
+          [ -s "$$PGDATA/PG_VERSION" ] || { echo "could not clone the primary"; exit 1; }
         fi
         exec postgres \
           -c hot_standby=on \

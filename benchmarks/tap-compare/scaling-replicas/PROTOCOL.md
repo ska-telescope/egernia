@@ -267,6 +267,28 @@ about the view the published scaling run measured.
   would have more aggregate bandwidth, so the gain measured here is a floor
   for the topology and not a ceiling.
 
+## Amendment 1 — WAL retention on the primary (before any measurement)
+
+Added while preparing the stacks, before a single rung ran, so it is part of
+the pre-registration rather than a deviation. Two failures on this box, both
+from the primary's default `wal_keep_size = 0` and the deliberate absence of
+replication slots:
+
+- three concurrent `pg_basebackup` clones raced the primary's WAL recycling
+  and one died with "requested WAL segment … has already been removed";
+- standbys restarted after a single-server tier hit the same error, kept no
+  WAL receiver, and went on answering `pg_isready` while serving stale data
+  from a stalled recovery.
+
+The primary therefore runs with `wal_keep_size = 2GB` in the 24r pins
+(verified by `SHOW` at every `up`), each standby retries its clone up to three
+times, and `run.sh` drops the standbys' data directories before 24r so
+`pg_basebackup` always runs against the primary as it is. None of this touches
+a measured quantity: it is WAL kept on disk and a clone that is allowed to
+fail once, in a tier whose grid writes nothing. A slot would have retained WAL
+indefinitely on the shared seeded volume, which is why the bounded setting is
+the one taken.
+
 ## Deviations from this document
 
 None are allowed silently. Anything that has to change once measurement has

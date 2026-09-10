@@ -149,6 +149,10 @@ up() {
     for s in shared_buffers effective_cache_size max_parallel_workers max_worker_processes; do
         expect "primary $s" "$(pg egernia-db-1 "show $s")" "$(setting "$tier" $s)"
     done
+    if [ "$tier" = 24r ]; then
+        expect "primary wal_keep_size" "$(pg egernia-db-1 'show wal_keep_size')" \
+            "$(setting "$tier" wal_keep_size)"
+    fi
     local workers processes minimum
     workers=$(grep -o 'TAP_API_WORKERS: "[0-9]*"' "$(pins "$tier")" | grep -o '[0-9]*')
     # one process for a single worker; a supervisor plus one per worker above that
