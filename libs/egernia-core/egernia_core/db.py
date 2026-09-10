@@ -109,15 +109,29 @@ def pinned_url(conn) -> str:
     verifying TLS and SASL against the name, which is what keeps
     ``sslmode=verify-full`` working. A Unix-socket connection reports no
     address and keeps its socket directory as the host.
+
+    The host-selection keywords are dropped, because a pinned DSN has no
+    hosts left to select between and they can only refuse the one address it
+    names. ``target_session_attrs=read-only`` is the case that bites: this is
+    also called for connections that deliberately stayed on the primary — a
+    query carrying a TAP_UPLOAD, and the async profiler — and reconnecting to
+    a read-write primary under that keyword fails outright with "session is
+    not read-only", so the watchdog could neither cancel nor reap an upload
+    job's backend. Dropping the keywords fixes the primary and the standby
+    with one rule and needs no call site to say which pool it came from,
+    which choosing the base DSN by pool would have required.
     """
-    return conninfo.make_conninfo(
-        settings.query_database_url or settings.database_url,
+    params = conninfo.conninfo_to_dict(settings.query_database_url or settings.database_url)
+    for host_selection in ("target_session_attrs", "load_balance_hosts"):
+        params.pop(host_selection, None)
+    params.update(
         host=conn.info.host,
         # make_conninfo skips a None; an empty hostaddr (Unix socket) must not
         # reach libpq as an empty string
         hostaddr=conn.info.hostaddr or None,
         port=conn.info.port,
     )
+    return conninfo.make_conninfo(**params)
 
 
 @contextlib.contextmanager

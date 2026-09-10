@@ -18,7 +18,9 @@ from egernia_executor import worker
 from .conftest import FakePool
 
 QUERY = "SELECT source_id, ra FROM ska.continuum_sources"
-REPLICAS = "postgresql://tap:tap@sb1,sb2,sb3/tap?target_session_attrs=read-only"
+REPLICAS = (
+    "postgresql://tap:tap@sb1,sb2,sb3/tap?target_session_attrs=read-only&load_balance_hosts=random"
+)
 
 
 class CountingPool(FakePool):
@@ -101,7 +103,21 @@ def test_the_abort_path_is_pinned_to_the_server_that_ran_the_query(monkeypatch):
     pinned = db.pinned_url(_conn("sb2", "10.0.0.12"))
     assert "host=sb2" in pinned
     assert "sb1" not in pinned and "sb3" not in pinned
-    assert "target_session_attrs=read-only" in pinned
+
+
+def test_the_pin_drops_the_host_selection_keywords(monkeypatch):
+    """A pinned DSN has no hosts left to choose between, and the keywords can
+    only refuse the one address it names. ``target_session_attrs=read-only``
+    is the case that bites: pinned_url is also called for connections that
+    stayed on the primary (a TAP_UPLOAD query, the async profiler), and a
+    read-write primary refuses that keyword outright — which would leave an
+    upload job's backend impossible to cancel or reap."""
+    monkeypatch.setattr(db, "settings", replace(settings, query_database_url=REPLICAS))
+    pinned = db.pinned_url(_conn("db", "10.0.0.2"))  # a primary connection
+    assert "target_session_attrs" not in pinned
+    assert "load_balance_hosts" not in pinned
+    assert "host=db" in pinned and "hostaddr=10.0.0.2" in pinned
+    assert "dbname=tap" in pinned  # everything else the DSN said survives
 
 
 def test_the_pin_is_an_address_and_keeps_the_name_for_tls(monkeypatch):
