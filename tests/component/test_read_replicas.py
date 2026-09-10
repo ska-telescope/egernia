@@ -106,6 +106,20 @@ def test_an_upload_query_stays_on_the_primary(split_service):
     assert after["primary"] > before["primary"]
 
 
+def test_a_primary_connection_pins_under_a_read_only_query_dsn(database_url, monkeypatch):
+    """The upload path keeps the primary, and its abort URL must still reach
+    it. Under the documented multi-host read-only query DSN, carrying the
+    host-selection keywords into the pinned URL makes libpq refuse the
+    primary — "session is not read-only" — and the watchdog can then neither
+    cancel nor reap the job."""
+    read_only = f"{database_url}?target_session_attrs=read-only&load_balance_hosts=random"
+    monkeypatch.setattr(db, "settings", replace(db.settings, query_database_url=read_only))
+    with psycopg.connect(database_url) as conn:  # what the primary pool hands out
+        pinned = db.pinned_url(conn)
+    with psycopg.connect(pinned) as pinned_conn:
+        assert pinned_conn.execute("SELECT 1").fetchone() == (1,)
+
+
 def test_the_pinned_abort_url_is_one_libpq_accepts(query_url, monkeypatch):
     """The executor builds this URL to cancel a statement on the server that
     is running it; a URL libpq cannot parse would only surface on an abort."""
