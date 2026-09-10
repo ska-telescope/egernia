@@ -77,25 +77,21 @@ makes is between its own three rungs. The published tier-24 numbers stay in
 their own report as the view-era result, and appear here for context only,
 labelled as such.
 
-## What is measured, and what it predates
+## What is measured
 
-The measured stack is built from a **local merge of PR #161 (`perf: route TAP
-queries to PostgreSQL read replicas`, the `TAP_QUERY_DATABASE_URL` routing)
-and PR #160 (`perf: serve ivoa.obscore from a materialised table kept current
-by triggers`)**, because the volume already carries #160's relation and the
-tier needs #161's routing.
+Both changes the tier needs are on `main`: PR #160 (`perf: serve ivoa.obscore
+from a materialised table kept current by triggers`, merged
+2026-09-10T07:45Z, main `b9801a6`) supplies the relation the volume already
+carries, and PR #161 (`perf: route TAP queries to PostgreSQL read replicas`,
+the `TAP_QUERY_DATABASE_URL` routing, merged the same morning, main
+`1845521`) supplies the routing. The measurement therefore runs from this
+branch — `main` plus this bench suite and the harness's `--classes` — and no
+longer from a local merge of two open branches.
 
-#160 landed on `main` two minutes before the run started (main `b9801a6`,
-merged 2026-09-10T07:45Z; the run's first rung at 07:48Z), and `main` was
-merged into #161's branch, so what is measured is **#161's own head plus
-`main`** — the local merge commit's tree is byte-identical to PR #161's head
-(`acca37b`) across `libs/`, `services/`, `db/`, `charts/` and `docs/`; only
-this bench suite and the harness's `--classes` differ, and those drive the
-grid rather than serve a query. #161 itself is not merged, so the measurement
-still predates that one. The merge commit's sha is recorded in the run's
-`environment.json` (the harness records the checkout's git state), the report
-names both PRs, and the merge branch is local to the measurement rather than
-proposed for review on its own.
+The images measured are built from that tree, and their shipped code
+(`libs/`, `services/`, `db/`) is byte-identical to it. The run's
+`environment.json` records the checkout's sha and whether it was dirty, and
+the report names both PRs.
 
 ## The three rungs
 
@@ -296,6 +292,23 @@ a measured quantity: it is WAL kept on disk and a clone that is allowed to
 fail once, in a tier whose grid writes nothing. A slot would have retained WAL
 indefinitely on the shared seeded volume, which is why the bounded setting is
 the one taken.
+
+## Amendment 2 — the first run was abandoned and restarted
+
+The first attempt (`results/20260910T074757Z-e56f490c-tap-compare-scaling`,
+started 07:47:27Z) is abandoned at 35 rungs of tier 24b and is **not
+published and not resumed**. At 08:34:21Z a concurrent driver from another
+protocol recreated all three stacks onto its own pins mid-grid — egernia to
+cpuset 0-7 with 4 GiB database, 2 GiB API and one API worker, instead of
+0-23, 12/6/6 and four workers — so three rungs (Q04 c32-r3, c64-r1, c64-r2,
+08:35-08:38Z) measured a shape nobody asked for. A run with silently invalid
+rungs mixed into it is worse than a fresh one, and 50 minutes is cheap.
+
+The grid restarts from rung 1 in a fresh run directory, with the sampler from
+the first rung. `run.sh` now refuses to start while any tap-compare
+measurement outside its own process group is alive, so this cannot recur from
+either direction; the other protocol's driver gained the same interlock. The
+restart and this cause are repeated in the published report's run notes.
 
 ## Deviations from this document
 
