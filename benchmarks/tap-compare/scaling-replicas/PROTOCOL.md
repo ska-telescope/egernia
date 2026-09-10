@@ -82,12 +82,20 @@ labelled as such.
 The measured stack is built from a **local merge of PR #161 (`perf: route TAP
 queries to PostgreSQL read replicas`, the `TAP_QUERY_DATABASE_URL` routing)
 and PR #160 (`perf: serve ivoa.obscore from a materialised table kept current
-by triggers`)**. Neither is merged to `main`: this measurement deliberately
-predates both, because the volume already carries #160's relation and the
-tier needs #161's routing. The merge commit's sha is recorded in the run's
-`environment.json` (the harness records the checkout's git state), and the
-report names both PRs. The merge branch is local to the measurement and is
-not proposed for review on its own; #160 and #161 are reviewed as themselves.
+by triggers`)**, because the volume already carries #160's relation and the
+tier needs #161's routing.
+
+#160 landed on `main` two minutes before the run started (main `b9801a6`,
+merged 2026-09-10T07:45Z; the run's first rung at 07:48Z), and `main` was
+merged into #161's branch, so what is measured is **#161's own head plus
+`main`** — the local merge commit's tree is byte-identical to PR #161's head
+(`acca37b`) across `libs/`, `services/`, `db/`, `charts/` and `docs/`; only
+this bench suite and the harness's `--classes` differ, and those drive the
+grid rather than serve a query. #161 itself is not merged, so the measurement
+still predates that one. The merge commit's sha is recorded in the run's
+`environment.json` (the harness records the checkout's git state), the report
+names both PRs, and the merge branch is local to the measurement rather than
+proposed for review on its own.
 
 ## The three rungs
 
