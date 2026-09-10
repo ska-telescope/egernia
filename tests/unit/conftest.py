@@ -140,7 +140,7 @@ class FakeConnection:
     # executor reads it to pin its abort signals to that server
     # (egernia_core.db.pinned_url): a cancel only works on the instance
     # running the statement.
-    info = SimpleNamespace(host="127.0.0.1", port="5432")
+    info = SimpleNamespace(host="127.0.0.1", hostaddr="127.0.0.1", port="5432")
 
     def __init__(self, db):
         self._db = db
