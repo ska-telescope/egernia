@@ -552,6 +552,17 @@ postgresql:
 # -- Used when postgresql.enabled=false; full DSN including credentials.
 externalDatabase:
   url: ""
+  # -- Where user queries execute, when that should not be the primary: the
+  # DSN of a read-only endpoint over PostgreSQL streaming-replication
+  # standbys — an operator's `-ro` Service, or a multi-host libpq URL with
+  # `target_session_attrs=read-only&load_balance_hosts=random`. Empty (the
+  # default) sends queries to the primary, exactly as before. The chart
+  # orchestrates no replicas of its own: point this at what runs them.
+  # Only query execution moves, so a query is eventually consistent with an
+  # ingest by the replication lag, and every standby has its own
+  # max_connections to keep the pools under. See docs/deployment.md, "Read
+  # replicas for the query path".
+  queryUrl: ""
 
 # -- Where the database credentials come from. By default the chart renders a
 # Secret named `<release>-db` from the values above. Set `existing: true` when
@@ -560,7 +571,8 @@ externalDatabase:
 # renders none, while every consumer keeps reading the same name.
 #
 # Whatever creates it must supply `TAP_DATABASE_URL`, because that is what the
-# API and executor read. With `postgresql.enabled=true` it must also supply
+# API and executor read — and `TAP_QUERY_DATABASE_URL` too, if the query path
+# is to use read replicas (`externalDatabase.queryUrl` is not rendered then). With `postgresql.enabled=true` it must also supply
 # `POSTGRES_USER`, `POSTGRES_PASSWORD` and `POSTGRES_DB`: the in-chart server
 # initialises itself from those, and the DSN has to be the same credentials
 # written twice or the service cannot log in to its own database.

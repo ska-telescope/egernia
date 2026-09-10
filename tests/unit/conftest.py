@@ -12,6 +12,7 @@ import datetime
 import io
 import json
 import re
+from types import SimpleNamespace
 from typing import Any, cast
 
 import egernia_core.db
@@ -135,6 +136,12 @@ class _FakeCopy:
 
 
 class FakeConnection:
+    # psycopg reports the server a connection actually reached here, and the
+    # executor reads it to pin its abort signals to that server
+    # (egernia_core.db.pinned_url): a cancel only works on the instance
+    # running the statement.
+    info = SimpleNamespace(host="127.0.0.1", port="5432")
+
     def __init__(self, db):
         self._db = db
 
@@ -568,6 +575,10 @@ def _cold_translation_cache():
 def fake_db(monkeypatch):
     db = FakeDB()
     monkeypatch.setattr(egernia_core.db, "_pool", FakePool(db))
+    # The abort path opens an unpooled connection to the one server running
+    # the statement (db.pinned_connection); the fake answers that too, or the
+    # watchdog would try to reach a real PostgreSQL.
+    monkeypatch.setattr(egernia_core.db, "pinned_connection", lambda url: FakePool(db).connection())
     return db
 
 

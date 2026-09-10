@@ -7,6 +7,7 @@ Requires a reachable PostgreSQL server (and the psql client). Configure with:
 Tests are skipped automatically when the server is unreachable.
 """
 
+import contextlib
 import os
 import pathlib
 import shutil
@@ -77,9 +78,20 @@ def api_url(tap_service):
 
 @pytest.fixture(scope="session")
 def tap_service(database_url, tmp_path_factory):
+    with running_services(database_url, tmp_path_factory.mktemp("results")) as base_url:
+        yield base_url
+
+
+@contextlib.contextmanager
+def running_services(database_url, results_dir, log_tag: str = "", **extra_env):
+    """The API and executor as subprocesses, on a free port, until the caller
+    is done with them.
+
+    ``extra_env`` is how a test module gets a stack configured differently —
+    a second pool for the query path, say — without a second copy of this.
+    """
     port = _free_port()
     base_url = f"http://127.0.0.1:{port}/tap"
-    results_dir = tmp_path_factory.mktemp("results")
     env = {
         **os.environ,
         "TAP_DATABASE_URL": database_url,
@@ -91,14 +103,18 @@ def tap_service(database_url, tmp_path_factory):
         # never show a request-derived URL differing from the configured one.
         # egernia.test is the second name that makes the difference visible.
         "TAP_TRUSTED_HOSTS": "127.0.0.1,localhost,egernia.test",
+        # a free port rather than the default 9100: two stacks in one session
+        # (and a host that already serves something there) must both come up
+        "TAP_EXECUTOR_METRICS_PORT": str(_free_port()),
+        **extra_env,
     }
     # fixed location so CI can dump the logs on failure (pytest swallows
     # session-fixture teardown output)
     logs_dir = REPO_ROOT / ".service-logs"
     logs_dir.mkdir(exist_ok=True)
     with (
-        open(logs_dir / "tap-api.log", "wb") as api_log,
-        open(logs_dir / "tap-executor.log", "wb") as executor_log,
+        open(logs_dir / f"tap-api{log_tag}.log", "wb") as api_log,
+        open(logs_dir / f"tap-executor{log_tag}.log", "wb") as executor_log,
     ):
         api = subprocess.Popen(
             [
