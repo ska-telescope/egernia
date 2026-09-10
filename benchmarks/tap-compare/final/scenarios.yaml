@@ -1,0 +1,65 @@
+# The final three-way comparison's scenarios. `corpus`, `mix` and `guards`
+# are the parity protocol's (config/scenarios.yaml, tag
+# tap-compare-prereg-v1) verbatim: the opponents and the wall-clock change,
+# the workload does not. Pre-registered in PROTOCOL.md.
+
+corpus:
+  seed: 424242
+  combinations: 400
+  projects: 3906
+
+mix:
+  Q01: 1
+  Q02: 3
+  Q03: 3
+  Q04: 2
+  Q05: 5
+  Q06: 2
+  Q07: 2
+  Q10: 1
+
+scenarios:
+  # The final grid, run once per phase over three interleaved targets:
+  # per-class + mix, both cross-server formats, four concurrencies, 3
+  # repetitions, the scaling protocol's 20 s warm-up and 60 s windows.
+  # 3 targets x 12 classes x 2 formats x 4 concurrencies x 3 repetitions
+  #   = 864 rungs per phase (PROTOCOL.md, "The grid and its wall-clock").
+  final:
+    ladder: [1, 4, 8, 32]
+    warmup_seconds: 20
+    measure_seconds: 60
+    repetitions: 3
+    response_formats: [votable, csv]
+    maxrec: 100000
+    # six processes on the six host cores no server stack uses (24-29): the
+    # 60% single-core guard has to hold at phase B's throughput, and four
+    # processes ran at 0.50 of a core for argus's 555 rps
+    # (docs/performance/20260906T145338Z-7aa14f6a-tap-compare).
+    generator_processes: 6
+    per_class: true
+
+  # An untimed mixed-workload pass after a stack is (re)started, so the
+  # first measured repetition does not pay for a cold shared_buffers.
+  # Its results directory is discarded. scaling/scenarios.yaml's verbatim.
+  warm:
+    ladder: [8]
+    warmup_seconds: 0
+    measure_seconds: 45
+    repetitions: 1
+    response_formats: [csv]
+    maxrec: 100000
+    generator_processes: 6
+
+  # The driver's shake-out: proves the three stacks, the three-way gates,
+  # the interleaving and the publisher end to end. Measures nothing.
+  final-smoke:
+    ladder: [2]
+    warmup_seconds: 2
+    measure_seconds: 6
+    repetitions: 1
+    response_formats: [csv]
+    maxrec: 100000
+    generator_processes: 1
+
+guards:
+  generator_cpu_max_fraction: 0.6
