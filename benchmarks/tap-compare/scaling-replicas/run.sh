@@ -99,6 +99,14 @@ wait_tap() {
 up() {
     local tier=$1
     log "PROGRESS tier=$tier phase=up"
+    if [ "$tier" != 24r ]; then
+        # A standby left running through a single-server tier would keep its
+        # memory and land in the resource sampler's output, which sums every
+        # egernia-* container as the server's figure. The single-server tiers
+        # must see no standby at all.
+        # shellcheck disable=SC2046
+        docker stop $(standbys) > /dev/null 2>&1 || true
+    fi
     # shellcheck disable=SC2046
     compose "$tier" up -d --no-build --force-recreate $(services "$tier")
     wait_tap
