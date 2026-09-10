@@ -9,6 +9,13 @@
 #   nohup setsid benchmarks/tap-compare/scaling-replicas/run.sh > replicas.log 2>&1 &
 #   grep PROGRESS replicas.log
 #
+# From an interactive shell that is all there is to it. From a harness that
+# runs commands as `bash -c "<text>"` — an agent's shell tool, a CI step — put
+# the launch in a small wrapper script and run that instead: setsid reparents
+# this driver, so a launching shell whose own command line happens to name
+# this script is neither its ancestor nor in its process group, and the
+# interlock below would take it for a rival measurement.
+#
 # Environment: SCENARIO (scaling | scaling-smoke), TIERS ("24b 24r 24w"),
 # GEN_CPUS (taskset list for the generator, "24-29"), RUN_NAME (an existing
 # run directory to resume), RESTORE (1: end on the pins the stack was found
@@ -266,8 +273,20 @@ fi
 # than no run. Anything outside this driver's own process group counts,
 # including a sampler left over from an earlier run — stop it first.
 MY_PGID=$(ps -o pgid= -p $$ | tr -d ' ')
+# Ancestors are excluded as well as this driver's own group: whatever launched
+# it carries the script's path in its own command line, and `setsid` (the
+# documented way to start it) puts the driver in a fresh process group, so the
+# launching shell would otherwise look like a rival measurement. A process
+# that spawned this one cannot be one.
+ANCESTORS=" $$ "
+ancestor=$$
+while ancestor=$(ps -o ppid= -p "$ancestor" 2>/dev/null | tr -d ' '); do
+    { [ -n "$ancestor" ] && [ "$ancestor" != 0 ] && [ "$ancestor" != 1 ]; } || break
+    ANCESTORS="$ANCESTORS$ancestor "
+done
 OTHERS=$(ps -eo pid,pgid,args |
-    awk -v me="$MY_PGID" '$2 != me && /benchmarks\/tap-compare/ && !/awk/ {print $1}')
+    awk -v me="$MY_PGID" -v mine="$ANCESTORS" \
+        '$2 != me && index(mine, " " $1 " ") == 0 && /benchmarks\/tap-compare/ && !/awk/ {print $1}')
 if [ -n "$OTHERS" ]; then
     ps -o pid,etime,args -p "$(echo "$OTHERS" | tr '\n' ',' | sed 's/,$//')" || true
     fail "another tap-compare measurement is alive (PIDs above); concurrent drivers recreate each other's stacks mid-grid and invalidate rungs"

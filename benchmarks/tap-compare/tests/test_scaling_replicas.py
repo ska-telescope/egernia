@@ -136,5 +136,8 @@ def test_the_driver_refuses_to_start_beside_another_measurement():
     assert "pgid" in before_measuring
     assert "benchmarks\\/tap-compare" in before_measuring
     assert "another tap-compare measurement is alive" in before_measuring
+    # a process that spawned this driver is not a rival: setsid reparents it,
+    # so ancestors have to be excluded explicitly as well as its own group
+    assert "ANCESTORS" in before_measuring and "ppid" in before_measuring
     # and the unpinned-neighbour guard is still there beside it
     assert "toolkit-(4|6)" in before_measuring
