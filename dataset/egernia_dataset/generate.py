@@ -335,10 +335,14 @@ TABLES = (
 #
 # Read from pg_indexes rather than written out here, so the suite rebuilds
 # whatever the service actually declared rather than a stale copy of it.
+#
+# ivoa.obscore is a table the ODP plugin keeps in step with srcnet.data_products
+# by trigger, so its GiST indexes are maintained by the same load and are set
+# aside with the rest.
 SPATIAL_INDEX_QUERY = """
-SELECT indexname, indexdef FROM pg_indexes
- WHERE schemaname = 'srcnet' AND indexdef LIKE '%USING gist%'
- ORDER BY indexname
+SELECT format('%I.%I', schemaname, indexname), indexdef FROM pg_indexes
+ WHERE schemaname IN ('srcnet', 'ivoa') AND indexdef LIKE '%USING gist%'
+ ORDER BY 1
 """
 
 
@@ -523,7 +527,7 @@ def _spatial_indexes_set_aside(conn):
         conn.execute(
             f"INSERT INTO {STASH} (name, ddl) VALUES (%s, %s) ON CONFLICT DO NOTHING", (name, ddl)
         )
-        conn.execute(f"DROP INDEX IF EXISTS srcnet.{name}")
+        conn.execute(f"DROP INDEX IF EXISTS {name}")
     conn.commit()
     saved = conn.execute(f"SELECT name, ddl FROM {STASH} ORDER BY name").fetchall()
     log.info("set aside %d GiST index(es) for the load", len(saved))
