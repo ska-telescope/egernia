@@ -180,10 +180,11 @@ up_argus() {
     log "PROGRESS phase=$PHASE server=argus step=up"
     compose_argus up -d --no-build --force-recreate
     wait_tap $ARGUS_URL
-    expect "argus rows" "$(pg_argus "select count(*) from caom2.\"ObsCore\"")" $EXPECTED_ROWS
-    expect "argus caom2.ObsCore relkind" "$(pg_argus "select c.relkind from pg_class c \
+    # argus's own DDL folds the identifier: the relation is caom2.obscore
+    expect "argus rows" "$(pg_argus 'select count(*) from caom2.obscore')" $EXPECTED_ROWS
+    expect "argus caom2.obscore relkind" "$(pg_argus "select c.relkind::text from pg_class c \
         join pg_namespace n on n.oid = c.relnamespace \
-        where n.nspname = 'caom2' and c.relname = 'ObsCore'")" r
+        where n.nspname = 'caom2' and c.relname = 'obscore'")" r
     for setting in shared_buffers effective_cache_size max_parallel_workers \
         max_worker_processes; do
         expect "argus $setting" "$(pg_argus "show $setting")" \
