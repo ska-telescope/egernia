@@ -7,6 +7,7 @@ Requires a reachable PostgreSQL server (and the psql client). Configure with:
 Tests are skipped automatically when the server is unreachable.
 """
 
+import contextlib
 import os
 import pathlib
 import shutil
@@ -77,9 +78,28 @@ def api_url(tap_service):
 
 @pytest.fixture(scope="session")
 def tap_service(database_url, tmp_path_factory):
+    with running_services(database_url, tmp_path_factory.mktemp("results")) as base_url:
+        yield base_url
+
+
+@contextlib.contextmanager
+def running_services(
+    database_url, results_dir, log_tag: str = "", executor: bool = True, **extra_env
+):
+    """The API and (by default) the executor as subprocesses, on a free port,
+    until the caller is done with them.
+
+    ``extra_env`` is how a test module gets a stack configured differently —
+    a second pool for the query path, say — without a second copy of this.
+
+    ``executor=False`` is for a second stack in the same session. Executors
+    claim from one ``uws.jobs`` with ``FOR UPDATE SKIP LOCKED`` and each
+    writes results into its own ``TAP_RESULTS_DIR``, so two of them against
+    one test database race for every async job in the run and the loser's API
+    answers 404 for a job that did complete. One executor per database.
+    """
     port = _free_port()
     base_url = f"http://127.0.0.1:{port}/tap"
-    results_dir = tmp_path_factory.mktemp("results")
     env = {
         **os.environ,
         "TAP_DATABASE_URL": database_url,
@@ -91,16 +111,20 @@ def tap_service(database_url, tmp_path_factory):
         # never show a request-derived URL differing from the configured one.
         # egernia.test is the second name that makes the difference visible.
         "TAP_TRUSTED_HOSTS": "127.0.0.1,localhost,egernia.test",
+        # a free port rather than the default 9100: two stacks in one session
+        # (and a host that already serves something there) must both come up
+        "TAP_EXECUTOR_METRICS_PORT": str(_free_port()),
+        **extra_env,
     }
     # fixed location so CI can dump the logs on failure (pytest swallows
     # session-fixture teardown output)
     logs_dir = REPO_ROOT / ".service-logs"
     logs_dir.mkdir(exist_ok=True)
     with (
-        open(logs_dir / "tap-api.log", "wb") as api_log,
-        open(logs_dir / "tap-executor.log", "wb") as executor_log,
+        open(logs_dir / f"tap-api{log_tag}.log", "wb") as api_log,
+        open(logs_dir / f"tap-executor{log_tag}.log", "wb") as executor_log,
     ):
-        api = subprocess.Popen(
+        api_process = subprocess.Popen(
             [
                 sys.executable,
                 "-m",
@@ -118,13 +142,17 @@ def tap_service(database_url, tmp_path_factory):
             stdout=api_log,
             stderr=subprocess.STDOUT,
         )
-        executor = subprocess.Popen(
-            [sys.executable, "-m", "egernia_executor.worker"],
-            env=env,
-            cwd=REPO_ROOT,
-            stdout=executor_log,
-            stderr=subprocess.STDOUT,
-        )
+        processes = [api_process]
+        if executor:
+            processes.append(
+                subprocess.Popen(
+                    [sys.executable, "-m", "egernia_executor.worker"],
+                    env=env,
+                    cwd=REPO_ROOT,
+                    stdout=executor_log,
+                    stderr=subprocess.STDOUT,
+                )
+            )
         try:
             deadline = time.monotonic() + 30
             while True:
@@ -135,14 +163,14 @@ def tap_service(database_url, tmp_path_factory):
                     pass  # connection refused while the service boots: keep polling
                 if time.monotonic() > deadline:
                     raise RuntimeError("tap-api did not become available")
-                if api.poll() is not None or executor.poll() is not None:
+                if any(proc.poll() is not None for proc in processes):
                     raise RuntimeError("a service process exited during startup")
                 time.sleep(0.3)
             yield base_url
         finally:
-            for proc in (api, executor):
+            for proc in processes:
                 proc.terminate()
-            for proc in (api, executor):
+            for proc in processes:
                 try:
                     proc.wait(timeout=10)
                 except subprocess.TimeoutExpired:

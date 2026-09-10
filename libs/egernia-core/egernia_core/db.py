@@ -3,35 +3,73 @@
 import contextlib
 
 import psycopg
+from psycopg import conninfo
 from psycopg_pool import ConnectionPool
 
 from .config import settings
 from .observability import DB_CONNECTIONS_IN_USE, pool_wait_timer
 
 _pool: ConnectionPool | None = None
+_query_pool: ConnectionPool | None = None
+
+# The two roles always exist as series, whether or not a deployment has
+# replicas, so a dashboard reads 0 rather than "no data" while a path is idle.
+PRIMARY, QUERY = "primary", "query"
+for _role in (PRIMARY, QUERY):
+    DB_CONNECTIONS_IN_USE.labels(pool=_role)
+
+
+def _open(url: str) -> ConnectionPool:
+    return ConnectionPool(
+        url,
+        min_size=settings.db_pool_min,
+        max_size=settings.db_pool_max,
+        # bound the wait, so exhaustion is a quick answer rather than a
+        # request that hangs for psycopg's 30s default and then 500s
+        timeout=settings.db_pool_timeout_s,
+        open=True,
+    )
 
 
 def pool() -> ConnectionPool:
     global _pool
     if _pool is None:
-        _pool = ConnectionPool(
-            settings.database_url,
-            min_size=settings.db_pool_min,
-            max_size=settings.db_pool_max,
-            # bound the wait, so exhaustion is a quick answer rather than a
-            # request that hangs for psycopg's 30s default and then 500s
-            timeout=settings.db_pool_timeout_s,
-            open=True,
-        )
+        _pool = _open(settings.database_url)
     return _pool
 
 
+def query_pool() -> ConnectionPool:
+    """The pool user queries execute on: the read replicas, if there are any.
+
+    ``TAP_QUERY_DATABASE_URL`` unset — or set to the same URL — hands back the
+    primary's own pool rather than opening a second one to the same server, so
+    a deployment that has not asked for replicas keeps one pool of exactly the
+    size, and the connection budget, it had.
+    """
+    global _query_pool
+    url = settings.query_database_url
+    if not url or url == settings.database_url:
+        return pool()
+    if _query_pool is None:
+        _query_pool = _open(url)
+    return _query_pool
+
+
 @contextlib.contextmanager
-def connection():
+def connection(*, replica_ok: bool = False):
     """A pooled connection, with the wait for it measured.
 
     Prefer this to ``pool().connection()``: waiting for a connection is the
     service's real backpressure signal, and it must stay visible.
+
+    ``replica_ok`` marks the work that may run on a streaming-replication
+    standby: executing a user query, which runs read-only under
+    ``TAP_QUERY_ROLE``. It is opt-in per call site rather than the default
+    because most of what this service does cannot go to a standby — the UWS
+    job table, ingest and bootstrap all write, a query carrying a TAP_UPLOAD
+    creates temp tables, and a read that has to see what this instant just
+    wrote (the published-table list right after publishing one) would race
+    replication lag.
 
     Only the acquisition is timed, never the held time. Timing the whole
     block — which is what a combined ``with`` does, since the caller's work
@@ -40,21 +78,80 @@ def connection():
     download), turning the one metric that reports backpressure into a
     slow-response metric.
     """
+    chosen, role = (query_pool, QUERY) if replica_ok else (pool, PRIMARY)
     with contextlib.ExitStack() as stack:
-        with pool_wait_timer():
-            conn = stack.enter_context(pool().connection())
-        DB_CONNECTIONS_IN_USE.inc()
+        with pool_wait_timer(role):
+            conn = stack.enter_context(chosen().connection())
+        DB_CONNECTIONS_IN_USE.labels(pool=role).inc()
         try:
             yield conn
         finally:
-            DB_CONNECTIONS_IN_USE.dec()
+            DB_CONNECTIONS_IN_USE.labels(pool=role).dec()
+
+
+def pinned_url(conn) -> str:
+    """The query URL, pinned to the one server ``conn`` is connected to.
+
+    Cancelling a statement is local to a PostgreSQL instance: with the query
+    path on standbys, ``pg_cancel_backend()`` on the primary finds nothing to
+    cancel, and a second connection from a load-balanced URL lands on
+    whichever host comes next rather than the one running the statement. The
+    executor's abort path signals that backend, so it needs a URL that can
+    only reach that server.
+
+    Pinned by **address**, not by name. The name would not be enough: a
+    read-only Service, or any DNS name that resolves to several standbys,
+    resolves again on the next connection, so a cancel could land on a
+    different standby than the one running the statement — and with a
+    multi-host DSN libpq reports the entry it actually used, but that entry
+    can itself be such a name. ``conn.info.hostaddr`` is the address libpq
+    reached; both are passed, so libpq connects to the address while still
+    verifying TLS and SASL against the name, which is what keeps
+    ``sslmode=verify-full`` working. A Unix-socket connection reports no
+    address and keeps its socket directory as the host.
+
+    The host-selection keywords are dropped, because a pinned DSN has no
+    hosts left to select between and they can only refuse the one address it
+    names. ``target_session_attrs=read-only`` is the case that bites: this is
+    also called for connections that deliberately stayed on the primary — a
+    query carrying a TAP_UPLOAD, and the async profiler — and reconnecting to
+    a read-write primary under that keyword fails outright with "session is
+    not read-only", so the watchdog could neither cancel nor reap an upload
+    job's backend. Dropping the keywords fixes the primary and the standby
+    with one rule and needs no call site to say which pool it came from,
+    which choosing the base DSN by pool would have required.
+    """
+    params = conninfo.conninfo_to_dict(settings.query_database_url or settings.database_url)
+    for host_selection in ("target_session_attrs", "load_balance_hosts"):
+        params.pop(host_selection, None)
+    params.update(
+        host=conn.info.host,
+        # make_conninfo skips a None; an empty hostaddr (Unix socket) must not
+        # reach libpq as an empty string
+        hostaddr=conn.info.hostaddr or None,
+        port=conn.info.port,
+    )
+    return conninfo.make_conninfo(**params)
+
+
+@contextlib.contextmanager
+def pinned_connection(url: str):
+    """A short-lived connection to exactly the server ``url`` names.
+
+    Unpooled on purpose. It exists for the abort path, which is rare, has to
+    reach one specific server, and must not queue behind a pool that may be
+    full of the very query it was asked to cancel.
+    """
+    with psycopg.connect(url, autocommit=True) as conn:
+        yield conn
 
 
 def close_pool() -> None:
-    global _pool
-    if _pool is not None:
-        _pool.close()
-        _pool = None
+    global _pool, _query_pool
+    for existing in (_pool, _query_pool):
+        if existing is not None:
+            existing.close()
+    _pool = _query_pool = None
 
 
 _NO_ROW = object()

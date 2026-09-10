@@ -56,9 +56,9 @@ of its own, so its metrics get a listener instead.
 
 | Metric | Type | Why it is here |
 | --- | --- | --- |
-| `tap_db_pool_wait_seconds` | histogram | The pool is the real concurrency limit. This is the signal that made a collapse above 8 concurrent queries invisible until it was reproduced locally. The wait only — a connection held through a long download is not a busy pool |
+| `tap_db_pool_wait_seconds` | histogram | The pool is the real concurrency limit. This is the signal that made a collapse above 8 concurrent queries invisible until it was reproduced locally. The wait only — a connection held through a long download is not a busy pool. Labelled `pool`: `query` is user query execution (the [read replicas](deployment.md#read-replicas-for-the-query-path), when a deployment has any), `primary` everything else — sum over the label for the old single series |
 | `tap_db_pool_exhausted_total` | counter | Requests answered `503` because no connection came free |
-| `tap_db_connections_in_use` | gauge | How much of the pool this process is holding |
+| `tap_db_connections_in_use` | gauge | How much of the pool this process is holding, by the same `pool` label |
 | `tap_query_duration_seconds{kind}` | histogram | Query time, `sync` and `async` separately — they have different limits and different users. Every query that ran is in it, including one that was aborted or abandoned: those were slow too, and dropping them would flatter the tail |
 | `tap_jobs{phase}` | gauge | The job store by phase. `phase="QUEUED"` is the queue's depth and what executors autoscale on — see [Autoscaling](autoscaling.md) |
 | `tap_oldest_queued_job_seconds` | gauge | How long the head of the queue has waited — a latency figure for dashboards and alerts, **not** a scaling signal: it saturates near one job's service time once the queue is draining at all (measured: 1,713 queued, oldest 54 s) |

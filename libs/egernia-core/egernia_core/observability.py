@@ -49,9 +49,15 @@ def _pool_wait_buckets() -> tuple[float, ...]:
     return tuple(sorted(edges))
 
 
+# Labelled by which path asked: "primary" for everything that writes or must
+# read its own writes, "query" for user query execution — the one that goes to
+# the read replicas when TAP_QUERY_DATABASE_URL names any. With no replica URL
+# both roles are served by the same pool, and the label still says which path
+# is holding it.
 DB_POOL_WAIT = Histogram(
     "tap_db_pool_wait_seconds",
     "Time spent waiting for a database connection from the pool.",
+    ["pool"],
     registry=REGISTRY,
     buckets=_pool_wait_buckets(),
 )
@@ -65,6 +71,7 @@ DB_POOL_EXHAUSTED = Counter(
 DB_CONNECTIONS_IN_USE = Gauge(
     "tap_db_connections_in_use",
     "Database connections currently checked out of the pool by this process.",
+    ["pool"],
     registry=REGISTRY,
 )
 
@@ -229,7 +236,7 @@ def tag_sql(sql: str) -> str:
 
 
 @contextlib.contextmanager
-def pool_wait_timer():
+def pool_wait_timer(role: str):
     """Record how long acquiring a database connection took.
 
     Wrap the acquisition and nothing else: held time is not waiting. Recorded
@@ -240,4 +247,4 @@ def pool_wait_timer():
     try:
         yield
     finally:
-        DB_POOL_WAIT.observe(time.perf_counter() - started)
+        DB_POOL_WAIT.labels(pool=role).observe(time.perf_counter() - started)

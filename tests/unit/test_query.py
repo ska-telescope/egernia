@@ -72,9 +72,9 @@ def test_run_sync_releases_connection_before_body_is_read(fake_db, monkeypatch):
     active = 0
 
     @contextlib.contextmanager
-    def tracked_connection():
+    def tracked_connection(**kwargs):
         nonlocal active
-        with real_connection() as conn:
+        with real_connection(**kwargs) as conn:
             active += 1
             try:
                 yield conn

@@ -281,6 +281,76 @@ The services only need the one DSN, so failover handled by the operator is
 transparent to them. An operator-managed database also brings WAL archiving
 and point-in-time recovery (below).
 
+### Read replicas for the query path
+
+A TAP query is a read: it runs under `TAP_QUERY_ROLE` (`tap_reader`), which
+owns no write privilege. So once PostgreSQL is replicated, query execution
+can leave the primary — and then the database stops being one instance's
+parallel-worker budget and buffer cache. `TAP_QUERY_DATABASE_URL` is the one
+setting:
+
+```bash
+helm upgrade egernia charts/egernia \
+  --set postgresql.enabled=false \
+  --set externalDatabase.url=postgresql://tap:…@tap-db-rw:5432/tap \
+  --set externalDatabase.queryUrl=postgresql://tap:…@tap-db-ro:5432/tap
+```
+
+Unset — the default — it *is* `TAP_DATABASE_URL`: one pool, one server,
+nothing about an existing deployment changes. Set, each API and executor
+process opens a second pool of `dbPoolMax` connections to that URL and runs
+user queries there. An operator's read-only Service (CloudNativePG's
+`-ro`) spreads the connections for you; without one, libpq does it, given
+more than one host:
+
+```
+postgresql://tap:…@sb1,sb2,sb3:5432/tap?target_session_attrs=read-only&load_balance_hosts=random
+```
+
+`target_session_attrs=read-only` refuses a host that turns out to be the
+primary and `load_balance_hosts=random` (libpq 16+; the images ship 18)
+picks the starting host per connection instead of always the first, so a
+pool spreads over the standbys. A standby that is down is skipped: libpq
+tries the next host. All of them down is a 503, like a full pool.
+
+**What does not move.** Everything else keeps the primary: the UWS job table
+(claims, leases, phases — a claim is a write), ingest, the schema bootstrap,
+`TAP_SCHEMA` reads that must see a table published a moment ago, and any
+query carrying a `TAP_UPLOAD`, because its temp tables are a write a standby
+refuses. The split is per call site (`egernia_core.db.connection`'s
+`replica_ok`), not per service, so the executor runs its query on a standby
+while booking the job on the primary.
+
+**Consistency.** TAP reads become eventually consistent with ingest: a
+product ingested now appears in query results one replication lag later
+(milliseconds on a healthy link, unbounded if a standby falls behind).
+Watch `pg_stat_replication.replay_lag` on the primary, and do not set this
+where a client must read its own write through TAP — the JSON metadata API
+(`/api/v1`), which is that read-your-writes path, stays on the primary
+anyway.
+
+**Sizing.** Each standby is a PostgreSQL to size to its own container by the
+rule in [PostgreSQL performance](postgres-performance.md) — `shared_buffers`
+a quarter of its memory, `effective_cache_size` three quarters, and
+`max_parallel_workers` at least twice the connections that reach *it*, which
+is the query pools divided by the number of standbys. Give the standbys
+`hot_standby_feedback=on`: without it the primary can vacuum away rows a
+long-running TAP scan still needs, and the query dies with "canceling
+statement due to conflict with recovery". Connections are counted per
+server, so the ceiling arithmetic in [Autoscaling](autoscaling.md) splits
+too.
+
+**Aborting a job** takes up to a second longer. The API's immediate
+`pg_cancel_backend()` is issued on the primary and finds nothing to cancel
+there, so the cancel comes from the executor's abort watchdog, which signals
+the server that is actually running the statement (it pins the URL to the
+host its connection reached). An `ABORT` still ends the job; the statement
+stops on the watchdog's next half-second poll rather than instantly.
+
+`tap_db_pool_wait_seconds` and `tap_db_connections_in_use` carry a `pool`
+label — `primary` or `query` — so the two paths are visible apart; with no
+replica URL both roles report against the single pool.
+
 ## Backup and restore
 
 Two things hold state: the PostgreSQL database (UWS jobs, `TAP_SCHEMA`, all
@@ -425,6 +495,7 @@ All services read environment variables (see `egernia_core/config.py`):
 | Variable | Default | Description |
 |---|---|---|
 | `TAP_DATABASE_URL` | `postgresql://tap:tap@localhost:5432/tap` | PostgreSQL DSN |
+| `TAP_QUERY_DATABASE_URL` | — | DSN user queries execute on; empty means `TAP_DATABASE_URL`. See [Read replicas for the query path](#read-replicas-for-the-query-path) |
 | `TAP_BASE_URL` | `http://localhost:8080/tap` | Public base URL (capabilities, result links) |
 | `TAP_RESULTS_DIR` | `/results` | Shared results directory |
 | `TAP_QUERY_ROLE` | `tap_reader` | Read-only role used for user queries |

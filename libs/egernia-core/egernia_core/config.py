@@ -55,6 +55,15 @@ def _bool(name: str, default: bool):
 @dataclass(frozen=True)
 class Settings:
     database_url: str = _env("TAP_DATABASE_URL", "postgresql://tap:tap@localhost:5432/tap")
+    # Where user queries execute, when that is not the primary: a libpq URL
+    # for the streaming-replication standbys, e.g.
+    #   postgresql://tap:tap@sb1,sb2,sb3/tap?target_session_attrs=read-only&load_balance_hosts=random
+    # Empty (the default) means the primary, so an existing deployment keeps
+    # one pool and one server. Only query execution moves — the UWS job table,
+    # ingest and bootstrap stay on database_url — so a query is eventually
+    # consistent with an ingest by the replication lag. See
+    # docs/deployment.md, "Read replicas for the query path".
+    query_database_url: str = _env("TAP_QUERY_DATABASE_URL", "")
     base_url: str = _env("TAP_BASE_URL", "http://localhost:8080/tap")
     # Hosts whose requests may decide the URLs this service prints back into
     # job documents, comma-separated. Host is client-controlled, so an
