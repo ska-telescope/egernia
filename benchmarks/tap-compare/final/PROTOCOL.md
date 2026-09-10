@@ -304,10 +304,18 @@ resumed for the measurement):
   every cpuset, every promised PostgreSQL setting via `SHOW`, the API's
   worker count in both the container's environment and its process count,
   egernia's 16 `srcnet` foreign keys, argus's emptied job store, and the
-  absence of `TAP_QUERY_DATABASE_URL`; a mismatch aborts before anything is
-  timed. It also samples every container it does not own and refuses to
-  start when an unpinned foreign container is burning more than half a core
-  (`ALLOW_NEIGHBOURS=1` overrides, and the reason is then recorded).
+  absence of `TAP_QUERY_DATABASE_URL` in **both** query-serving containers
+  (PR #161 routes query execution in each); a mismatch aborts before anything
+  is timed. It also validates the generator's own affinity — every core of
+  this host belongs to a server stack or to the generator, so an override
+  overlapping any server cpuset is refused rather than measured — and samples
+  every container it does not own, refusing to start when a foreign container
+  is burning more than half a core, *whatever its cpuset says*: a pinned
+  foreign container is pinned onto somebody's cores. `ALLOW_NEIGHBOURS=1`
+  overrides that refusal, and then the override, the generator's affinity and
+  every container's CPU at the start of the phase are written to
+  `pins/<phase>-host.txt`, which `publish` copies into the report — so a run
+  measured over a hot neighbour cannot be mistaken for a clean one.
 
 ## Hypotheses, stated in advance
 
@@ -483,3 +491,34 @@ uv run --group tap-compare python benchmarks/tap-compare publish --run <run-a>
 PHASE=b nohup setsid benchmarks/tap-compare/final/run.sh > final-b.log 2>&1 &
 uv run --group tap-compare python benchmarks/tap-compare publish --run <run-b>
 ```
+
+## Amendment 1 — the interlock, and why it exists (2026-09-10, before measurement)
+
+Registered before any rung of this protocol was measured, after the driver
+was run by accident while another measurement held the box.
+
+A unit test of the driver's refusal logic invoked `run.sh` as a subprocess
+with a deliberately bad `GEN_CPUS`. One of its cases passed `GEN_CPUS=""`,
+which bash's `${GEN_CPUS:-24-29}` silently replaced with the default — so
+instead of being refused, the driver started for real: it recreated all
+three stacks onto this protocol's pins while the read-replica tier's run
+(`20260910T074757Z-e56f490c-tap-compare-scaling`, tier 24b) was measuring
+egernia on the 24-core cpuset. That run's egernia stack was moved to eight
+cores, 8 GiB and one API worker for roughly two minutes of its rungs.
+
+Two changes follow, and both are in force for every phase of this protocol:
+
+- **An interlock.** The driver's first act is to recreate three stacks,
+  which rewrites the pins of whatever is running on them. It now refuses to
+  start while any other `benchmarks/tap-compare` measurement process is
+  alive on the host, naming the process it found; `ALLOW_CONCURRENT=1`
+  overrides it for a deliberate resume. This is the check that would have
+  prevented the incident, and it also guards phase B against being started
+  while phase A is still running.
+- **No test may execute the driver.** `tests/test_final.py` checks the
+  refusal logic by reading the script, never by running it. A script whose
+  purpose is to recreate containers is not a unit under test.
+
+Nothing about the workload, grid, gates, statistics, hypotheses or pins
+changes. The affected rungs belong to another protocol's run and are that
+run's to re-measure; this protocol had measured nothing.

@@ -198,11 +198,32 @@ def test_the_driver_and_the_pins_agree_on_every_placement():
         "pins/egernia-w1.yml",
         "pins/egernia-w8.yml",
         "truncate uws.jobdetail, uws.job",  # argus starts each phase fresh
+        "egernia-tap-executor-1",  # PR #161 routes queries in both containers
         "TAP_QUERY_DATABASE_URL",  # one database: PR #161 must be inert
         "relkind",  # PR #160's ivoa.obscore is a table
+        "work_mem",  # every setting the pins promise, not just most of them
+        "record_host",  # the override and the neighbours reach the report
+        "stop_sampler",  # the sampler loops forever: one phase, one sampler
         "--gates-only",
     ):
         assert needle in script
+
+
+def test_the_driver_validates_the_generator_affinity_before_anything_else():
+    """A generator on a measured stack's cores would report its own
+    contention as the server's, so the driver expands GEN_CPUS and refuses an
+    overlap. Checked statically and never by executing run.sh: the script's
+    job is to recreate containers, so a test must not run it (learned the
+    hard way on 2026-09-10 — see PROTOCOL.md's amendment 1)."""
+    script = (FINAL / "run.sh").read_text()
+    validator = script[script.index("GEN_CORES=$(") : script.index("|| fail_early")]
+    assert "EGERNIA_CPUSET" in validator and "ARGUS_CPUSET" in validator
+    assert "DACHS_CPUSET" in validator
+    assert "generator & servers" in validator  # the overlap is what refuses
+    # it runs before the main body — nothing is created or timed until it has
+    assert script.index("GEN_CORES=$(") < script.index('log "PROGRESS start')
+    # and the driver refuses to start while another measurement holds the box
+    assert "another tap-compare measurement" in script
 
 
 # -- the harness: a unanimous gate and a three-way verdict -------------------
