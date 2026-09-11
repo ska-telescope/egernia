@@ -300,8 +300,31 @@ print(json.dumps([{k: h[k] for k in ("CpusetCpus", "NanoCpus", "Memory")}
 # read-replica tier's run). So: refuse while any other tap-compare
 # measurement holds the box, and let ALLOW_CONCURRENT=1 override for a
 # deliberate resume.
-others=$(pgrep -af 'benchmarks/tap-compare .*(compare|--scenario)' \
-    | grep -v "^$$ " | grep -v "$SCENARIO" || true)
+# Excluding by string would be wrong in both directions: the shell that
+# launched this script has the script's path on its own command line (a false
+# refusal), and phase B's own scenario name appears in phase A's command line
+# (a false pass). So exclude by identity — our ancestors, and, since the
+# driver is launched under setsid, everything in our own session.
+mine=" $$ "
+walk=$$
+while [ -n "$walk" ] && [ "$walk" != 0 ] && [ "$walk" != 1 ]; do
+    walk=$(ps -o ppid= -p "$walk" 2>/dev/null | tr -d ' ')
+    [ -n "$walk" ] && mine="$mine$walk "
+done
+mysid=$(ps -o sid= -p $$ | tr -d ' ')
+# The pattern is the *invocation* form — the harness entry point followed by
+# one of its arguments — not the bare path, which any shell that merely
+# mentions this directory would carry on its command line.
+# `|| true`: pgrep exits 1 when nothing matches, which is the *good* case —
+# without it `set -o pipefail` would kill the driver silently on a clean box.
+others=$({ pgrep -af 'benchmarks/tap-compare +(--config-dir|compare|run|publish|gates)' \
+    || true; } | while read -r p args; do
+        case $mine in *" $p "*) continue ;; esac
+        if [ "$(ps -o sid= -p "$p" 2>/dev/null | tr -d ' ')" = "$mysid" ]; then
+            continue  # our own child (the generator, the gates) under setsid
+        fi
+        echo "$p $args"
+      done)
 if [ -n "$others" ] && [ "${ALLOW_CONCURRENT:-0}" != 1 ]; then
     log "$others"
     fail_early "another tap-compare measurement is running (above): recreating the" \

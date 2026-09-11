@@ -222,8 +222,15 @@ def test_the_driver_validates_the_generator_affinity_before_anything_else():
     assert "generator & servers" in validator  # the overlap is what refuses
     # it runs before the main body — nothing is created or timed until it has
     assert script.index("GEN_CORES=$(") < script.index('log "PROGRESS start')
-    # and the driver refuses to start while another measurement holds the box
+    # and the driver refuses to start while another measurement holds the box,
+    # by process identity (ancestors and our own session are not rivals) and
+    # with pgrep's empty exit neutralised — `set -o pipefail` would otherwise
+    # kill the driver silently on a clean box
     assert "another tap-compare measurement" in script
+    interlock = script[script.index("# The interlock") : script.index('log "PROGRESS start')]
+    assert "|| true; }" in interlock
+    assert "ps -o ppid=" in interlock and "ps -o sid=" in interlock
+    assert "ALLOW_CONCURRENT" in interlock
 
 
 # -- the harness: a unanimous gate and a three-way verdict -------------------
