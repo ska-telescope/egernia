@@ -1,0 +1,94 @@
+{
+  "targets": {
+    "egernia-local": {
+      "taplint": {
+        "by_stage": {
+          "AVV": {
+            "I": 1,
+            "S": 1
+          },
+          "CAP": {
+            "I": 1
+          },
+          "CPV": {
+            "I": 1,
+            "S": 1
+          },
+          "EXA": {
+            "I": 14,
+            "S": 2
+          },
+          "MDQ": {
+            "I": 6,
+            "S": 2,
+            "W": 11
+          },
+          "OBS": {
+            "I": 13,
+            "S": 3
+          },
+          "QAS": {
+            "I": 14,
+            "S": 2
+          },
+          "QGE": {
+            "I": 21,
+            "S": 2
+          },
+          "QPO": {
+            "I": 7,
+            "S": 2
+          },
+          "TMC": {
+            "W": 10
+          },
+          "TME": {
+            "I": 2,
+            "S": 3
+          },
+          "TMS": {
+            "I": 21,
+            "S": 4
+          },
+          "TMV": {
+            "I": 1,
+            "S": 1
+          },
+          "UPL": {
+            "I": 4
+          },
+          "UUC": {
+            "I": 1
+          },
+          "UWS": {
+            "I": 8
+          }
+        },
+        "errors_blocking": 0,
+        "errors_total": 0,
+        "passed": true,
+        "report_path": "/home/mdelliveneri/egernia/benchmarks/tap-compare/results/20260910T084557Z-716fe2a1-tap-compare-scaling/taplint/t24b-egernia-local.txt"
+      },
+      "vosi": {
+        "availability_status": 200,
+        "base_url": "http://localhost:8080/tap",
+        "capabilities_status": 200,
+        "maxrec_default": 10000,
+        "maxrec_hard": 1000000,
+        "output_formats": [
+          "application/json",
+          "application/vnd.apache.arrow.stream",
+          "application/vnd.apache.parquet",
+          "application/x-votable+xml",
+          "text/csv",
+          "text/tab-separated-values"
+        ],
+        "server_header": "uvicorn",
+        "tables_status": 200,
+        "tap_versions": [
+          "1.1"
+        ]
+      }
+    }
+  }
+}

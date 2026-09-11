@@ -1,0 +1,57 @@
+# 2026-09-10T08:46:09Z tier 24b, order: 24b 24r 24w
+## egernia-db-1
+cpuset=0-23 nanocpus=0 memory=12884901888
+postgres -c shared_buffers=3GB -c effective_cache_size=9GB -c work_mem=64MB -c max_parallel_workers=80 -c max_worker_processes=88
+  PID                 COMMAND
+  1896878             postgres -c shared_buffers=3GB -c effective_cache_size=9GB -c work_mem=64MB -c max_parallel_workers=80 -c max_worker_processes=88
+  1896996             postgres: io worker 0
+  1896997             postgres: io worker 1
+  1896998             postgres: io worker 2
+  1896999             postgres: checkpointer
+  1897000             postgres: background writer
+  1897002             postgres: walwriter
+  1897003             postgres: autovacuum launcher
+  1897004             postgres: logical replication launcher
+  1897307             postgres: tap tap 172.18.0.3(42384) idle
+  1897308             postgres: tap tap 172.18.0.3(42394) idle
+  1897418             postgres: tap tap 172.18.0.4(37356) idle
+  1897419             postgres: tap tap 172.18.0.4(37370) idle
+  1897443             postgres: tap tap 172.18.0.4(37372) idle
+  1897444             postgres: tap tap 172.18.0.4(37388) idle
+  1897837             postgres: tap tap 172.18.0.4(37394) idle
+  1897838             postgres: tap tap 172.18.0.4(37396) idle
+  1897855             postgres: tap tap 172.18.0.4(58862) idle
+  1897856             postgres: tap tap 172.18.0.4(58870) idle
+### SHOW
+effective_cache_size = 9GB
+hot_standby_feedback = off
+max_connections = 100
+max_parallel_workers = 80
+max_worker_processes = 88
+shared_buffers = 3GB
+work_mem = 64MB
+## egernia-tap-api-1
+cpuset=0-23 nanocpus=0 memory=6442450944
+/bin/sh -c exec /srv/.venv/bin/uvicorn egernia_api.main:app --host 0.0.0.0 --port "${TAP_API_PORT:-8080}" --workers "${TAP_API_WORKERS:-1}" --backlog "${TAP_API_BACKLOG:-2048}" ${TAP_API_LIMIT_CONCURRENCY:+--limit-concurrency "${TAP_API_LIMIT_CONCURRENCY}"}
+TAP_API_WORKERS=4
+  PID                 COMMAND
+  1897147             /srv/.venv/bin/python /srv/.venv/bin/uvicorn egernia_api.main:app --host 0.0.0.0 --port 8080 --workers 4 --backlog 2048
+  1897293             /srv/.venv/bin/python -c from multiprocessing.resource_tracker import main;main(6)
+  1897294             /srv/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=9) --multiprocessing-fork
+  1897295             /srv/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=13) --multiprocessing-fork
+  1897296             /srv/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=17) --multiprocessing-fork
+  1897297             /srv/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=21) --multiprocessing-fork
+### SHOW
+OCI runtime exec failed: exec failed: unable to start container process: exec: "psql": executable file not found in $PATH
+## egernia-tap-executor-1
+cpuset=0-23 nanocpus=0 memory=6442450944
+/srv/.venv/bin/python -m egernia_executor.worker
+  PID                 COMMAND
+  1897139             /srv/.venv/bin/python -m egernia_executor.worker
+### SHOW
+OCI runtime exec failed: exec failed: unable to start container process: exec: "psql": executable file not found in $PATH
+## replication
+## host neighbours (unpinned toolkit containers widen the spread)
+toolkit-3 Up 3 weeks
+toolkit-2 Up 6 weeks
+toolkit-1 Up 7 weeks
