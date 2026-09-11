@@ -1,0 +1,213 @@
+# 2026-09-10T11:45:21Z tier 24r, order: 24b 24r 24w
+## egernia-db-1
+cpuset=0-23 nanocpus=0 memory=3221225472
+postgres -c hba_file=/etc/postgresql/pg_hba.conf -c shared_buffers=768MB -c effective_cache_size=2304MB -c work_mem=64MB -c max_parallel_workers=8 -c max_worker_processes=8 -c wal_keep_size=2GB
+  PID                 COMMAND
+  2337690             postgres -c hba_file=/etc/postgresql/pg_hba.conf -c shared_buffers=768MB -c effective_cache_size=2304MB -c work_mem=64MB -c max_parallel_workers=8 -c max_worker_processes=8 -c wal_keep_size=2GB
+  2337827             postgres: io worker 0
+  2337828             postgres: io worker 1
+  2337829             postgres: io worker 2
+  2337830             postgres: checkpointer
+  2337831             postgres: background writer
+  2337833             postgres: walwriter
+  2337834             postgres: autovacuum launcher
+  2337835             postgres: logical replication launcher
+  2338307             postgres: tap tap 172.18.0.6(54246) idle
+  2338308             postgres: tap tap 172.18.0.6(54250) idle
+  2340695             postgres: walsender tap 172.18.0.3(56874) streaming 1/760D9898
+  2340714             postgres: walsender tap 172.18.0.4(33058) streaming 1/760D9898
+  2340983             postgres: walsender tap 172.18.0.7(48846) streaming 1/760D9898
+  2341902             postgres: tap tap 172.18.0.8(52390) idle
+  2341903             postgres: tap tap 172.18.0.8(52396) idle
+  2341904             postgres: tap tap 172.18.0.8(52410) idle
+  2341905             postgres: tap tap 172.18.0.8(52412) idle
+  2341915             postgres: tap tap 172.18.0.8(52428) idle
+  2341917             postgres: tap tap 172.18.0.8(52430) idle
+  2341923             postgres: tap tap 172.18.0.8(52436) idle
+  2341924             postgres: tap tap 172.18.0.8(52438) idle
+  2341925             postgres: tap tap 172.18.0.8(52452) idle
+  2341926             postgres: tap tap 172.18.0.8(52462) idle
+  2341937             postgres: tap tap 172.18.0.8(52476) idle
+  2341938             postgres: tap tap 172.18.0.8(52480) idle
+  2341939             postgres: tap tap 172.18.0.8(52490) idle
+  2341940             postgres: tap tap 172.18.0.8(52494) idle
+  2341946             postgres: tap tap 172.18.0.8(52510) idle
+  2341947             postgres: tap tap 172.18.0.8(52524) idle
+  2344689             postgres: tap tap 172.18.0.8(41454) idle
+### SHOW
+effective_cache_size = 2304MB
+hot_standby_feedback = off
+max_connections = 100
+max_parallel_workers = 8
+max_worker_processes = 8
+shared_buffers = 768MB
+work_mem = 64MB
+## egernia-tap-api-1
+cpuset=0-23 nanocpus=0 memory=6442450944
+/bin/sh -c exec /srv/.venv/bin/uvicorn egernia_api.main:app --host 0.0.0.0 --port "${TAP_API_PORT:-8080}" --workers "${TAP_API_WORKERS:-1}" --backlog "${TAP_API_BACKLOG:-2048}" ${TAP_API_LIMIT_CONCURRENCY:+--limit-concurrency "${TAP_API_LIMIT_CONCURRENCY}"}
+TAP_QUERY_DATABASE_URL=postgresql://tap:tap@db-standby-1:5432,db-standby-2:5432,db-standby-3:5432/tap?target_session_attrs=read-only&load_balance_hosts=random
+TAP_API_WORKERS=8
+  PID                 COMMAND
+  2341244             /srv/.venv/bin/python /srv/.venv/bin/uvicorn egernia_api.main:app --host 0.0.0.0 --port 8080 --workers 8 --backlog 2048
+  2341365             /srv/.venv/bin/python -c from multiprocessing.resource_tracker import main;main(6)
+  2341366             /srv/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=9) --multiprocessing-fork
+  2341367             /srv/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=13) --multiprocessing-fork
+  2341368             /srv/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=17) --multiprocessing-fork
+  2341369             /srv/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=21) --multiprocessing-fork
+  2341370             /srv/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=25) --multiprocessing-fork
+  2341371             /srv/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=29) --multiprocessing-fork
+  2341372             /srv/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=33) --multiprocessing-fork
+  2341373             /srv/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=37) --multiprocessing-fork
+### SHOW
+OCI runtime exec failed: exec failed: unable to start container process: exec: "psql": executable file not found in $PATH
+## egernia-tap-executor-1
+cpuset=0-23 nanocpus=0 memory=6442450944
+/srv/.venv/bin/python -m egernia_executor.worker
+TAP_QUERY_DATABASE_URL=postgresql://tap:tap@db-standby-1:5432,db-standby-2:5432,db-standby-3:5432/tap?target_session_attrs=read-only&load_balance_hosts=random
+  PID                 COMMAND
+  2338106             /srv/.venv/bin/python -m egernia_executor.worker
+### SHOW
+OCI runtime exec failed: exec failed: unable to start container process: exec: "psql": executable file not found in $PATH
+## egernia-db-standby-1-1
+cpuset=0-23 nanocpus=0 memory=3221225472
+bash -c set -e
+if [ ! -s "$PGDATA/PG_VERSION" ]; then
+  echo "cloning the primary into $PGDATA"
+  rm -rf "$PGDATA"
+  install -d -m 700 "$PGDATA"
+  # Retried: a failed clone removes its own data directory, so a
+  # second attempt starts clean, and three clones racing one primary
+  # is a transient worth surviving rather than a run to restart.
+  for attempt in 1 2 3; do
+    pg_basebackup -h db -p 5432 -U tap -D "$PGDATA" -Fp -Xs -R -c fast -P && break
+    echo "clone attempt $attempt failed; retrying in 10s"
+    sleep 10
+  done
+  [ -s "$PGDATA/PG_VERSION" ] || { echo "could not clone the primary"; exit 1; }
+fi
+exec postgres \
+  -c hot_standby=on \
+  -c hot_standby_feedback=on \
+  -c shared_buffers=768MB \
+  -c effective_cache_size=2304MB \
+  -c work_mem=64MB \
+  -c max_parallel_workers=144 \
+  -c max_worker_processes=152
+
+  PID                 COMMAND
+  2338104             postgres -c hot_standby=on -c hot_standby_feedback=on -c shared_buffers=768MB -c effective_cache_size=2304MB -c work_mem=64MB -c max_parallel_workers=144 -c max_worker_processes=152
+  2340976             postgres: io worker 0
+  2340977             postgres: io worker 1
+  2340978             postgres: io worker 2
+  2340979             postgres: checkpointer
+  2340980             postgres: background writer
+  2340981             postgres: startup recovering 000000010000000100000076
+  2340982             postgres: walreceiver streaming 1/760D9898
+  2344015             postgres: tap tap 172.18.0.6(48950) idle
+  2344016             postgres: tap tap 172.18.0.6(48960) idle
+### SHOW
+effective_cache_size = 2304MB
+hot_standby_feedback = on
+max_connections = 100
+max_parallel_workers = 144
+max_worker_processes = 152
+shared_buffers = 768MB
+work_mem = 64MB
+## egernia-db-standby-2-1
+cpuset=0-23 nanocpus=0 memory=3221225472
+bash -c set -e
+if [ ! -s "$PGDATA/PG_VERSION" ]; then
+  echo "cloning the primary into $PGDATA"
+  rm -rf "$PGDATA"
+  install -d -m 700 "$PGDATA"
+  # Retried: a failed clone removes its own data directory, so a
+  # second attempt starts clean, and three clones racing one primary
+  # is a transient worth surviving rather than a run to restart.
+  for attempt in 1 2 3; do
+    pg_basebackup -h db -p 5432 -U tap -D "$PGDATA" -Fp -Xs -R -c fast -P && break
+    echo "clone attempt $attempt failed; retrying in 10s"
+    sleep 10
+  done
+  [ -s "$PGDATA/PG_VERSION" ] || { echo "could not clone the primary"; exit 1; }
+fi
+exec postgres \
+  -c hot_standby=on \
+  -c hot_standby_feedback=on \
+  -c shared_buffers=768MB \
+  -c effective_cache_size=2304MB \
+  -c work_mem=64MB \
+  -c max_parallel_workers=144 \
+  -c max_worker_processes=152
+
+  PID                 COMMAND
+  2338103             postgres -c hot_standby=on -c hot_standby_feedback=on -c shared_buffers=768MB -c effective_cache_size=2304MB -c work_mem=64MB -c max_parallel_workers=144 -c max_worker_processes=152
+  2340707             postgres: io worker 0
+  2340708             postgres: io worker 1
+  2340709             postgres: io worker 2
+  2340710             postgres: checkpointer
+  2340711             postgres: background writer
+  2340712             postgres: startup recovering 000000010000000100000076
+  2340713             postgres: walreceiver streaming 1/760D9898
+  2343816             postgres: tap tap 172.18.0.8(34722) idle
+  2344386             postgres: tap tap 172.18.0.8(60590) idle
+### SHOW
+effective_cache_size = 2304MB
+hot_standby_feedback = on
+max_connections = 100
+max_parallel_workers = 144
+max_worker_processes = 152
+shared_buffers = 768MB
+work_mem = 64MB
+## egernia-db-standby-3-1
+cpuset=0-23 nanocpus=0 memory=3221225472
+bash -c set -e
+if [ ! -s "$PGDATA/PG_VERSION" ]; then
+  echo "cloning the primary into $PGDATA"
+  rm -rf "$PGDATA"
+  install -d -m 700 "$PGDATA"
+  # Retried: a failed clone removes its own data directory, so a
+  # second attempt starts clean, and three clones racing one primary
+  # is a transient worth surviving rather than a run to restart.
+  for attempt in 1 2 3; do
+    pg_basebackup -h db -p 5432 -U tap -D "$PGDATA" -Fp -Xs -R -c fast -P && break
+    echo "clone attempt $attempt failed; retrying in 10s"
+    sleep 10
+  done
+  [ -s "$PGDATA/PG_VERSION" ] || { echo "could not clone the primary"; exit 1; }
+fi
+exec postgres \
+  -c hot_standby=on \
+  -c hot_standby_feedback=on \
+  -c shared_buffers=768MB \
+  -c effective_cache_size=2304MB \
+  -c work_mem=64MB \
+  -c max_parallel_workers=144 \
+  -c max_worker_processes=152
+
+  PID                 COMMAND
+  2338094             postgres -c hot_standby=on -c hot_standby_feedback=on -c shared_buffers=768MB -c effective_cache_size=2304MB -c work_mem=64MB -c max_parallel_workers=144 -c max_worker_processes=152
+  2340629             postgres: io worker 0
+  2340630             postgres: io worker 1
+  2340631             postgres: io worker 2
+  2340632             postgres: checkpointer
+  2340633             postgres: background writer
+  2340634             postgres: startup recovering 000000010000000100000076
+  2340694             postgres: walreceiver streaming 1/760D9898
+  2343817             postgres: tap tap 172.18.0.8(59256) idle
+  2344385             postgres: tap tap 172.18.0.8(57062) idle
+### SHOW
+effective_cache_size = 2304MB
+hot_standby_feedback = on
+max_connections = 100
+max_parallel_workers = 144
+max_worker_processes = 152
+shared_buffers = 768MB
+work_mem = 64MB
+## replication
+172.18.0.3/32 streaming write=00:00:00.000264 flush=00:00:00.000755 replay=00:00:00.000756
+172.18.0.4/32 streaming write=00:00:00.000225 flush=00:00:00.000712 replay=00:00:00.000713
+172.18.0.7/32 streaming write=00:00:00.000158 flush=00:00:00.000645 replay=00:00:00.000734
+## host neighbours (unpinned toolkit containers widen the spread)
+toolkit-3 Up 3 weeks
+toolkit-2 Up 6 weeks
+toolkit-1 Up 7 weeks

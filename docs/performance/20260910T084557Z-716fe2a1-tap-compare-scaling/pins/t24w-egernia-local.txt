@@ -1,0 +1,69 @@
+# 2026-09-10T14:45:25Z tier 24w, order: 24b 24r 24w
+## egernia-db-1
+cpuset=0-23 nanocpus=0 memory=12884901888
+postgres -c shared_buffers=3GB -c effective_cache_size=9GB -c work_mem=64MB -c max_parallel_workers=144 -c max_worker_processes=152
+  PID                 COMMAND
+  566306              postgres -c shared_buffers=3GB -c effective_cache_size=9GB -c work_mem=64MB -c max_parallel_workers=144 -c max_worker_processes=152
+  566421              postgres: io worker 0
+  566422              postgres: io worker 1
+  566423              postgres: io worker 2
+  566424              postgres: checkpointer
+  566425              postgres: background writer
+  566427              postgres: walwriter
+  566428              postgres: autovacuum launcher
+  566429              postgres: logical replication launcher
+  566769              postgres: tap tap 172.18.0.3(39966) idle
+  566770              postgres: tap tap 172.18.0.3(39974) idle
+  567155              postgres: tap tap 172.18.0.4(45586) idle
+  567156              postgres: tap tap 172.18.0.4(45596) idle
+  567162              postgres: tap tap 172.18.0.4(45602) idle
+  567163              postgres: tap tap 172.18.0.4(45606) idle
+  567169              postgres: tap tap 172.18.0.4(45616) idle
+  567170              postgres: tap tap 172.18.0.4(45626) idle
+  567181              postgres: tap tap 172.18.0.4(45636) idle
+  567182              postgres: tap tap 172.18.0.4(45648) idle
+  567183              postgres: tap tap 172.18.0.4(45652) idle
+  567184              postgres: tap tap 172.18.0.4(45668) idle
+  567191              postgres: tap tap 172.18.0.4(45678) idle
+  567192              postgres: tap tap 172.18.0.4(45690) idle
+  567221              postgres: tap tap 172.18.0.4(45706) idle
+  567222              postgres: tap tap 172.18.0.4(45712) idle
+  567228              postgres: tap tap 172.18.0.4(45716) idle
+  567229              postgres: tap tap 172.18.0.4(45730) idle
+### SHOW
+effective_cache_size = 9GB
+hot_standby_feedback = off
+max_connections = 100
+max_parallel_workers = 144
+max_worker_processes = 152
+shared_buffers = 3GB
+work_mem = 64MB
+## egernia-tap-api-1
+cpuset=0-23 nanocpus=0 memory=6442450944
+/bin/sh -c exec /srv/.venv/bin/uvicorn egernia_api.main:app --host 0.0.0.0 --port "${TAP_API_PORT:-8080}" --workers "${TAP_API_WORKERS:-1}" --backlog "${TAP_API_BACKLOG:-2048}" ${TAP_API_LIMIT_CONCURRENCY:+--limit-concurrency "${TAP_API_LIMIT_CONCURRENCY}"}
+TAP_API_WORKERS=8
+  PID                 COMMAND
+  566607              /srv/.venv/bin/python /srv/.venv/bin/uvicorn egernia_api.main:app --host 0.0.0.0 --port 8080 --workers 8 --backlog 2048
+  566747              /srv/.venv/bin/python -c from multiprocessing.resource_tracker import main;main(6)
+  566748              /srv/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=9) --multiprocessing-fork
+  566749              /srv/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=13) --multiprocessing-fork
+  566750              /srv/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=17) --multiprocessing-fork
+  566751              /srv/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=21) --multiprocessing-fork
+  566752              /srv/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=25) --multiprocessing-fork
+  566753              /srv/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=29) --multiprocessing-fork
+  566754              /srv/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=33) --multiprocessing-fork
+  566755              /srv/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=37) --multiprocessing-fork
+### SHOW
+OCI runtime exec failed: exec failed: unable to start container process: exec: "psql": executable file not found in $PATH
+## egernia-tap-executor-1
+cpuset=0-23 nanocpus=0 memory=6442450944
+/srv/.venv/bin/python -m egernia_executor.worker
+  PID                 COMMAND
+  566609              /srv/.venv/bin/python -m egernia_executor.worker
+### SHOW
+OCI runtime exec failed: exec failed: unable to start container process: exec: "psql": executable file not found in $PATH
+## replication
+## host neighbours (unpinned toolkit containers widen the spread)
+toolkit-3 Up 3 weeks
+toolkit-2 Up 6 weeks
+toolkit-1 Up 7 weeks
