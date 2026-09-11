@@ -88,6 +88,35 @@ uses all eight cores for CPU-bound work where one uvicorn worker uses one
 `egernia-local-equalcpu argus-local`, `--config-dir
 benchmarks/tap-compare/argus-equal-cpu`.
 
+## The final three-way comparison (`final/`)
+
+The experiment whose **two tables replace every earlier performance table**
+(tag `tap-compare-final-prereg-v1`): the parity protocol run against all
+three servers at once — egernia, GAVO DaCHS and CADC argus, each on 8 CPUs
+and 8 GiB, on **disjoint cpusets** (egernia 0–7, argus 8–15, DaCHS 16–23,
+generators 24–29) so the rungs interleave A,B,C per cell — in two phases
+that differ in one thing only:
+
+- **Table A**, `PHASE=a`: egernia with one uvicorn worker (the deployment
+  most operators run).
+- **Table B**, `PHASE=b`: egernia with eight, one per pinned core, against
+  *the same* DaCHS and argus, unchanged — which makes their two
+  measurements a reproducibility check on them.
+
+The grid is the parity grid with the scaling protocol's 20 s + 60 s windows
+and `c=16` dropped: 864 rungs per phase, ≈ 42 h for both. Design, sizing
+rules, grid arithmetic, hypotheses and threats to validity are in
+[`final/PROTOCOL.md`](final/PROTOCOL.md); `final/run.sh` brings the three
+stacks up, verifies every promise the pins make (row counts, `relkind`,
+`SHOW` of every setting, worker counts, cpusets, argus's truncated job
+store, the corpus sha, foreign containers) and refuses to measure if
+anything is off.
+
+```bash
+PHASE=a nohup setsid benchmarks/tap-compare/final/run.sh > final-a.log 2>&1 &
+uv run --group tap-compare python benchmarks/tap-compare publish --run <run>
+```
+
 ## Fairness rules (lane A — the only lane)
 
 This harness is **never pointed at a production service someone else

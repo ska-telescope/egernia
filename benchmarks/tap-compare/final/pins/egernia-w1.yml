@@ -1,0 +1,23 @@
+# egernia in phase A of the final three-way comparison (../PROTOCOL.md):
+# docker-compose.egernia-pins.yml's budget — one shared 8-core cpuset, 8 GiB
+# as 4 db / 2 api / 2 executor — with the API's single uvicorn worker stated
+# explicitly rather than left to the image default, so the driver can verify
+# it. The db command is docker-compose.yml's, unchanged (shared_buffers 1/4
+# and effective_cache_size 3/4 of the db's 4 GiB, the parallel budget of
+# docs/postgres-performance.md for one API worker plus one executor).
+#
+#   docker compose -f docker-compose.yml \
+#       -f benchmarks/tap-compare/final/pins/egernia-w1.yml \
+#       up -d --no-build db tap-api tap-executor
+services:
+  db:
+    cpuset: "0-7"
+    mem_limit: 4g
+  tap-api:
+    cpuset: "0-7"
+    mem_limit: 2g
+    environment:
+      TAP_API_WORKERS: "1"
+  tap-executor:
+    cpuset: "0-7"
+    mem_limit: 2g

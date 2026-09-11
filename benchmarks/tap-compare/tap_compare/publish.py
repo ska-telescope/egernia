@@ -88,33 +88,42 @@ def _overlap(a: dict, b: dict) -> bool:
     return a["ci95_low"] <= b["ci95_high"] and b["ci95_low"] <= a["ci95_high"]
 
 
-def verdict(cells: dict, key_a: tuple, key_b: tuple) -> str:
+def _beats(hi: dict, lo: dict) -> bool:
+    """Whether ``hi``'s throughput beats ``lo``'s by the pre-registered rule."""
+    if hi["mean"] is None or lo["mean"] is None:
+        return False  # a cell without a mean claims nothing
+    relative = (hi["mean"] - lo["mean"]) / max(lo["mean"], 1e-9)
+    return not _overlap(hi, lo) and relative >= RPS_FLOOR
+
+
+def verdict(cells: dict, *keys: tuple) -> str:
     """Return "tie", "invalid", or the winning target's name, by the pre-registered rule.
 
-    A tripped generator guard invalidates the cell: the harness measured
-    itself. A target whose requests errored beyond the ceiling cannot *win* —
-    error responses return fast and inflate its throughput — but a clean
-    opponent still can: the errors are the server's own behaviour under that
-    load, and the page prints them beside the number.
+    A tripped generator guard on *any* target invalidates the cell: the
+    harness measured itself. A target whose requests errored beyond the
+    ceiling cannot *win* — error responses return fast and inflate its
+    throughput — but a clean opponent still can: the errors are the server's
+    own behaviour under that load, and the page prints them beside the number.
+
+    Two or three (or more) targets: the fastest clean target wins only if it
+    beats *every* other clean target by the rule; if the leading group is
+    indistinguishable, the cell is a tie. With two targets this is exactly
+    the rule the parity protocol registered.
     """
-    a, b = cells[key_a], cells[key_b]
-    if not (a["guard_ok"] and b["guard_ok"]):
+    if not all(cells[k]["guard_ok"] for k in keys):
         return "invalid"
-    a_clean = a["errors"] <= ERROR_CEILING
-    b_clean = b["errors"] <= ERROR_CEILING
-    if not (a_clean or b_clean):
+    clean = [k for k in keys if cells[k]["errors"] <= ERROR_CEILING]
+    if not clean:
         return "invalid"
-    if a_clean != b_clean:
-        return (key_a if a_clean else key_b)[3]
-    rps_a, rps_b = a["rps"], b["rps"]
-    if rps_a["mean"] is None or rps_b["mean"] is None:
+    ranked = sorted(
+        clean,
+        key=lambda k: -1.0 if cells[k]["rps"]["mean"] is None else cells[k]["rps"]["mean"],
+        reverse=True,
+    )
+    best = ranked[0]
+    if any(not _beats(cells[best]["rps"], cells[other]["rps"]) for other in ranked[1:]):
         return "tie"
-    hi, lo = (a, b) if rps_a["mean"] >= rps_b["mean"] else (b, a)
-    hi_key = key_a if hi is a else key_b
-    relative = (hi["rps"]["mean"] - lo["rps"]["mean"]) / max(lo["rps"]["mean"], 1e-9)
-    if _overlap(hi["rps"], lo["rps"]) or relative < RPS_FLOOR:
-        return "tie"
-    return hi_key[3]  # the target name
+    return best[3]  # the target name
 
 
 def _fmt(ci: dict, digits: int = 1) -> str:
@@ -130,6 +139,38 @@ def _fmt(ci: dict, digits: int = 1) -> str:
 #: it up — keyed by a target's name where the target has pins of its own,
 #: else by its `server`
 STACKS = {
+    # the final three-way comparison (final/PROTOCOL.md): three stacks up at
+    # once on disjoint cpusets, one 8 CPU / 8 GiB budget each
+    "egernia-final-w1": (
+        "egernia in `benchmarks/tap-compare/final/pins/egernia-w1.yml`"
+        " (`cpuset` 0-7; 8 GiB split 4 db / 2 api / 2 executor;"
+        " `TAP_API_WORKERS=1`; `benchmarks/tap-compare/final/PROTOCOL.md`)",
+        "docker compose -f docker-compose.yml \\\n"
+        "    -f benchmarks/tap-compare/final/pins/egernia-w1.yml up -d",
+    ),
+    "egernia-final-w8": (
+        "egernia in `benchmarks/tap-compare/final/pins/egernia-w8.yml`"
+        " (`cpuset` 0-7; 8 GiB split 4 db / 2 api / 2 executor;"
+        " `TAP_API_WORKERS=8`, PostgreSQL parallel budget 144/152;"
+        " `benchmarks/tap-compare/final/PROTOCOL.md`)",
+        "docker compose -f docker-compose.yml \\\n"
+        "    -f benchmarks/tap-compare/final/pins/egernia-w8.yml up -d",
+    ),
+    "argus-final": (
+        "argus in `benchmarks/tap-compare/docker-compose.argus.yml` +"
+        " `final/pins/argus.yml` (`cpuset` 8-15; 8 GiB split 3 Tomcat /"
+        " 5 PostgreSQL; `benchmarks/tap-compare/final/PROTOCOL.md`)",
+        "docker compose -f benchmarks/tap-compare/docker-compose.argus.yml \\\n"
+        "    -f benchmarks/tap-compare/final/pins/argus.yml up -d --build",
+    ),
+    "dachs-final": (
+        "DaCHS in `benchmarks/tap-compare/docker-compose.dachs.yml` +"
+        " `final/pins/dachs.yml` (`cpus: 8`, `cpuset` 16-23, `mem_limit: 8g`,"
+        " its PostgreSQL sized to the container by the ¼ rule;"
+        " `benchmarks/tap-compare/final/PROTOCOL.md`)",
+        "docker compose -f benchmarks/tap-compare/docker-compose.dachs.yml \\\n"
+        "    -f benchmarks/tap-compare/final/pins/dachs.yml up -d",
+    ),
     "egernia-local-equalcpu": (
         "egernia in `benchmarks/tap-compare/argus-equal-cpu/egernia-equalcpu.yml`"
         " (shared `cpuset` of 8 cores; 8 GiB split 4 db / 2 api / 2 executor;"
@@ -460,7 +501,7 @@ def _tables(rows: list[dict], targets: list[str], heading: str) -> list[str]:
                     if cells[key]["errors"] > ERROR_CEILING:
                         rps_txt += f" ({cells[key]['errors']:.0%} err)"
                     row += f" {rps_txt} | {_fmt(cells[key]['p95'], 3)} |"
-                outcome = verdict(cells, keys[0], keys[1]) if len(keys) == 2 else "—"
+                outcome = verdict(cells, *keys) if len(keys) > 1 else "—"
                 row += f" {outcome} |"
                 lines.append(row)
     return lines
