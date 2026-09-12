@@ -139,11 +139,17 @@ ever set; since sync queries run on the request thread but draw from that
 pool, argus's database concurrency does not grow with the tier. S3 states
 what that should cost.
 
-**argus's UWS job store is truncated before every block.** argus persists one
-UWS job per synchronous request and its own throughput decays with that
-history (23.3 → 12.7 rps on the mix at c=8 across accumulated runs). With
-nine blocks in this run, a shared history would confound the tier axis
-completely.
+**argus's UWS job store is truncated immediately before every measured
+block**, after the gates and after the warm pass. argus persists one UWS job
+per synchronous request and its own throughput decays with that history
+(23.3 → 12.7 rps on the mix at c=8 across accumulated runs). Truncating only
+when the stack comes up would not be enough: the agreement gate's 165 probes
+and the 45 s warm pass are synchronous requests too, and argus persists every
+one of them — and there are *more* of them at tier 8, which warms three
+servers, than above it, where one is warmed. That would leave a different
+history on each tier's blocks, i.e. history on the tier axis, which is the
+one thing this experiment must keep off it. The truncation is a no-op when
+argus is stopped, which is every non-argus block above tier 8.
 
 ## The grid and its wall-clock
 

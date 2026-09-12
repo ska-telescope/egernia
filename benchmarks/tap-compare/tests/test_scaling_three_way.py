@@ -181,7 +181,31 @@ def test_the_driver_matches_the_protocol_and_keeps_the_final_runs_discipline():
 
 
 def test_the_report_names_this_protocol_not_the_other_one():
-    assert "scaling-three-way/PROTOCOL.md" in "\n".join(publish.scaling_intro("scaling3"))
-    assert "scaling/PROTOCOL.md" in "\n".join(publish.scaling_intro("scaling"))
+    # every scenario this protocol defines, the shake-out included: publishing
+    # a smoke run must not attribute it to the protocol it is not
+    for scenario in ("scaling3", "scaling3-smoke"):
+        assert "scaling-three-way/PROTOCOL.md" in "\n".join(publish.scaling_intro(scenario))
+    for scenario in ("scaling", "scaling-smoke"):
+        assert "scaling-three-way" not in "\n".join(publish.scaling_intro(scenario))
     # a tiered run from before the mapping still names the original protocol
     assert "scaling/PROTOCOL.md" in "\n".join(publish.scaling_intro(None))
+    # nothing this protocol can run is missing from the map
+    scenarios = yaml.safe_load((S3 / "scenarios.yaml").read_text())["scenarios"]
+    for scenario in scenarios:
+        if scenario != "warm":  # the warm pass is a discard, never published
+            assert scenario in publish.SCALING_PROTOCOLS
+
+
+def test_argus_starts_every_measured_block_on_an_empty_job_store():
+    """The gates' probes and the warm pass are synchronous requests, and argus
+    persists a UWS job for each — so truncating only at `up` would leave a
+    different history on each tier's blocks and put it on the tier axis."""
+    script = (S3 / "run.sh").read_text()
+    assert script.count("truncate_argus_jobs_if_up") == 3  # the definition and both call sites
+    # each measured block truncates immediately before `compare`, never after it
+    for block in script.split("truncate_argus_jobs_if_up")[1:]:
+        head = block[: block.index("tap compare")] if "tap compare" in block else block
+        assert "--classes" not in head
+    # and it is a no-op when argus is stopped, which is every non-argus block
+    # above tier 8
+    assert "State.Running" in script

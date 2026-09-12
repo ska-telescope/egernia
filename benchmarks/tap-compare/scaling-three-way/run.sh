@@ -228,6 +228,20 @@ truncate_argus_jobs() {
 
 up_server() { case $1 in egernia) up_egernia "$2" ;; dachs) up_dachs "$2" ;; argus) up_argus "$2" ;; esac; }
 
+# The gates' sync probes and the warm pass are synchronous requests, and argus
+# persists a UWS job for every one of them — so a block that truncated only at
+# `up` would still start on a few hundred rows, and on a *different* few
+# hundred at each tier (tier 8 warms three servers, the others warm one). That
+# would put history on the tier axis. Truncate again immediately before every
+# measured block; a no-op when argus is stopped, which is every non-argus
+# block above tier 8.
+truncate_argus_jobs_if_up() {
+    [ "$(docker inspect -f '{{.State.Running}}' tap-compare-argus-db-1 2>/dev/null)" = true ] \
+        || return 0
+    truncate_argus_jobs
+    log "PROGRESS argus job store emptied before the measured block"
+}
+
 down_server() {
     log "PROGRESS tier=$2 server=$1 step=down"
     case $1 in
@@ -362,6 +376,7 @@ for tier in $TIERS; do
             log "PROGRESS tier=$tier step=warm target=$target"
             tap run --target "$target" --scenario warm
         done
+        truncate_argus_jobs_if_up
         log "PROGRESS tier=$tier step=measure interleaved"
         # shellcheck disable=SC2086
         tap compare --targets $TARGETS --scenario "$SCENARIO" --tier "$tier" \
@@ -378,6 +393,7 @@ for tier in $TIERS; do
             local_target=$(server_of "$server")
             log "PROGRESS tier=$tier step=warm target=$local_target"
             tap run --target "$local_target" --scenario warm
+            truncate_argus_jobs_if_up
             log "PROGRESS tier=$tier step=measure target=$local_target"
             # shellcheck disable=SC2086
             tap compare --targets $TARGETS --scenario "$SCENARIO" --tier "$tier" \

@@ -221,7 +221,9 @@ def parity_intro(stacks: list[str]) -> list[str]:
 #: points at the design that was actually pre-registered for it
 SCALING_PROTOCOLS = {
     "scaling": "scaling/PROTOCOL.md",
+    "scaling-smoke": "scaling/PROTOCOL.md",
     "scaling3": "scaling-three-way/PROTOCOL.md",
+    "scaling3-smoke": "scaling-three-way/PROTOCOL.md",
 }
 DEFAULT_SCALING_PROTOCOL = "scaling/PROTOCOL.md"
 
