@@ -217,20 +217,31 @@ def parity_intro(stacks: list[str]) -> list[str]:
     ]
 
 
-SCALING_INTRO = [
-    "Same-hardware TAP-server resource-scaling comparison: the parity",
-    "protocol's corpus, gates, query stream, formats and statistics, with",
-    "both servers' resource pins raised tier by tier. Within a tier each",
-    "server is measured alone under that tier's pins (the host cannot hold",
-    "two pinned stacks of the larger tiers at once), so repetitions do not",
-    "interleave across servers; the gates run per tier with both stacks up.",
-    "The pins actually applied, as `docker inspect` and `SHOW` saw them, are",
-    "under `pins/`. See `benchmarks/tap-compare/scaling/PROTOCOL.md` for",
-    "the pre-registered design. Where `resources.jsonl` covers a rung, the",
-    "resource tables give each server's CPU cores used, CPU time per request",
-    "and memory over the rung's window (`resources.csv` has every rung);",
-    "rungs measured before the sampler started show `—`.",
-]
+#: which protocol directory a tiered run's scenario belongs to, so the report
+#: points at the design that was actually pre-registered for it
+SCALING_PROTOCOLS = {
+    "scaling": "scaling/PROTOCOL.md",
+    "scaling3": "scaling-three-way/PROTOCOL.md",
+}
+DEFAULT_SCALING_PROTOCOL = "scaling/PROTOCOL.md"
+
+
+def scaling_intro(scenario: str | None = None) -> list[str]:
+    protocol = SCALING_PROTOCOLS.get(scenario or "", DEFAULT_SCALING_PROTOCOL)
+    return [
+        "Same-hardware TAP-server resource-scaling comparison: the parity",
+        "protocol's corpus, gates, query stream, formats and statistics, with",
+        "every server's resource pins raised tier by tier. Where the host",
+        "cannot hold every pinned stack of a tier at once, the servers are",
+        "measured one at a time under that tier's pins, so repetitions do not",
+        "interleave across them; the gates run per tier with the stacks up.",
+        "The pins actually applied, as `docker inspect` and `SHOW` saw them, are",
+        f"under `pins/`. See `benchmarks/tap-compare/{protocol}` for",
+        "the pre-registered design. Where `resources.jsonl` covers a rung, the",
+        "resource tables give each server's CPU cores used, CPU time per request",
+        "and memory over the rung's window (`resources.csv` has every rung);",
+        "rungs measured before the sampler started show `—`.",
+    ]
 
 
 #: which sampled containers make up each server (scaling/sample_resources.sh)
@@ -550,7 +561,10 @@ def render(run_dir: pathlib.Path, out_dir: pathlib.Path) -> pathlib.Path:
                     )
 
     stacks = stack_keys(rows)
-    lines = [f"# {run_dir.name}", ""] + (SCALING_INTRO if scaling else parity_intro(stacks))
+    scenario = next(iter(environment.get("scenario") or {}), None)
+    lines = [f"# {run_dir.name}", ""] + (
+        scaling_intro(scenario) if scaling else parity_intro(stacks)
+    )
     for tier in tiers:
         prefix = f"t{tier}-" if tier else ""
         gates = json.loads((run_dir / f"{prefix}gates.json").read_text())
