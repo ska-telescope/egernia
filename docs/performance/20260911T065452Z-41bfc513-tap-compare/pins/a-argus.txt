@@ -1,0 +1,32 @@
+# 2026-09-11T06:56:22Z phase a, argus
+## tap-compare-argus-1
+cpuset=8-15 nanocpus=0 memory=3221225472
+/usr/bin/cadc-tomcat-start
+  PID                 COMMAND
+  3671422             /bin/bash /usr/bin/cadc-tomcat-start
+  3671543             /usr/lib/jvm/jre/bin/java -XX:+HeapDumpOnOutOfMemoryError -XX:OnError=cat hs_err_pid%p.log -Xms512m -Xmx2048m -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -Djavax.sql.DataSource.Factory=org.apache.tomcat.dbcp.dbcp2.BasicDataSourceFactory -classpath /usr/share/tomcat/bin/bootstrap.jar:/usr/share/tomcat/bin/tomcat-juli.jar: -Dcatalina.base=/usr/share/tomcat -Dcatalina.home=/usr/share/tomcat -Djava.endorsed.dirs= -Djava.io.tmpdir=/var/cache/tomcat/temp -Djava.util.logging.config.file=/usr/share/tomcat/conf/logging.properties -Djava.util.logging.manager=org.apache.juli.ClassLoaderLogManager org.apache.catalina.startup.Bootstrap start
+## tap-compare-argus-db-1
+cpuset=8-15 nanocpus=0 memory=5368709120
+postgres -c shared_buffers=1280MB -c effective_cache_size=3840MB -c max_parallel_workers=32 -c max_worker_processes=40
+  PID                 COMMAND
+  3671230             postgres -c shared_buffers=1280MB -c effective_cache_size=3840MB -c max_parallel_workers=32 -c max_worker_processes=40
+  3671335             postgres: checkpointer
+  3671336             postgres: background writer
+  3671338             postgres: walwriter
+  3671339             postgres: autovacuum launcher
+  3671340             postgres: logical replication launcher
+  3671971             postgres: tap argus 172.20.0.3(46718) idle
+  3671973             postgres: tap argus 172.20.0.3(46728) idle
+  3672014             postgres: tap argus 172.20.0.3(46740) idle
+  3683582             postgres: tap argus 172.20.0.3(58578) idle
+  3685567             postgres: tap argus 172.20.0.3(55086) idle
+  3686596             postgres: tap argus 172.20.0.3(55100) idle
+## SHOW
+effective_cache_size = 3840MB
+max_connections = 100
+max_parallel_workers = 32
+max_worker_processes = 40
+shared_buffers = 1280MB
+work_mem = 4MB
+## uws.job rows
+119

@@ -1,0 +1,37 @@
+# 2026-09-11T06:56:21Z phase a, egernia
+## egernia-db-1
+cpuset=0-7 nanocpus=0 memory=4294967296
+postgres -c shared_buffers=1GB -c effective_cache_size=3GB -c work_mem=64MB -c max_parallel_workers=32 -c max_worker_processes=40
+  PID                 COMMAND
+  3669476             postgres -c shared_buffers=1GB -c effective_cache_size=3GB -c work_mem=64MB -c max_parallel_workers=32 -c max_worker_processes=40
+  3669591             postgres: io worker 0
+  3669592             postgres: io worker 1
+  3669593             postgres: io worker 2
+  3669594             postgres: checkpointer
+  3669595             postgres: background writer
+  3669597             postgres: walwriter
+  3669598             postgres: autovacuum launcher
+  3669599             postgres: logical replication launcher
+  3669905             postgres: tap tap 172.18.0.4(41714) idle
+  3669906             postgres: tap tap 172.18.0.4(41730) idle
+  3669919             postgres: tap tap 172.18.0.3(55872) idle
+  3669920             postgres: tap tap 172.18.0.3(55884) idle
+  3672727             postgres: tap tap 172.18.0.3(54204) idle
+## egernia-tap-api-1
+cpuset=0-7 nanocpus=0 memory=2147483648
+/bin/sh -c exec /srv/.venv/bin/uvicorn egernia_api.main:app --host 0.0.0.0 --port "${TAP_API_PORT:-8080}" --workers "${TAP_API_WORKERS:-1}" --backlog "${TAP_API_BACKLOG:-2048}" ${TAP_API_LIMIT_CONCURRENCY:+--limit-concurrency "${TAP_API_LIMIT_CONCURRENCY}"}
+TAP_API_WORKERS=1
+  PID                 COMMAND
+  3669733             /srv/.venv/bin/python /srv/.venv/bin/uvicorn egernia_api.main:app --host 0.0.0.0 --port 8080 --workers 1 --backlog 2048
+## egernia-tap-executor-1
+cpuset=0-7 nanocpus=0 memory=2147483648
+/srv/.venv/bin/python -m egernia_executor.worker
+  PID                 COMMAND
+  3669739             /srv/.venv/bin/python -m egernia_executor.worker
+## SHOW
+effective_cache_size = 3GB
+max_connections = 100
+max_parallel_workers = 32
+max_worker_processes = 40
+shared_buffers = 1GB
+work_mem = 64MB
