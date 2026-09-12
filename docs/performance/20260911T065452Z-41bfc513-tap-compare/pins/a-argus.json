@@ -1,0 +1,12 @@
+[
+  {
+    "CpusetCpus": "8-15",
+    "NanoCpus": 0,
+    "Memory": 3221225472
+  },
+  {
+    "CpusetCpus": "8-15",
+    "NanoCpus": 0,
+    "Memory": 5368709120
+  }
+]
