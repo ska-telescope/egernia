@@ -286,16 +286,21 @@ def _select_classes(classes: list, wanted: list[str] | None) -> list:
     full grid; the rung keys and summaries are unchanged, so a restricted run
     is read by the same tools. Nothing to restrict (a mixed-workload
     scenario) or no request leaves the rungs alone.
+
+    A comparison's class list carries the mixed workload as ``None``; it is
+    named ``mix`` on the command line, as it is in every rung key and every
+    published table.
     """
     if not wanted:
         return classes
-    unknown = sorted(set(wanted) - set(classes))
+    named = {c: c or "mix" for c in classes}
+    unknown = sorted(set(wanted) - set(named.values()))
     if unknown:
         raise SystemExit(
             f"--classes names classes this scenario does not run: {', '.join(unknown)}"
-            f" (available: {', '.join(c for c in classes if c)})"
+            f" (available: {', '.join(sorted(named.values()))})"
         )
-    return [c for c in classes if c in wanted]
+    return [c for c in classes if named[c] in wanted]
 
 
 def _resolve_targets(
@@ -416,6 +421,7 @@ def cmd_compare(args: argparse.Namespace) -> int:
     classes: list[str | None] = [None]  # None = the mixed workload
     if scenario.get("per_class"):
         classes += [c for c in sorted({e.query_class for e in entries}) if c not in excluded]
+    classes = _select_classes(classes, args.classes)
 
     guard_max = cfg["guards"]["generator_cpu_max_fraction"]
     for response_format in scenario["response_formats"]:
@@ -546,6 +552,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     compare_parser.add_argument(
         "--gates-only", action="store_true", help="run (or reuse) the gates, then stop"
+    )
+    compare_parser.add_argument(
+        "--classes",
+        nargs="+",
+        metavar="QNN",
+        help="measure only these query classes (`mix` for the mixed workload) and skip"
+        " the rest; the gates still cover every class",
     )
     compare_parser.set_defaults(func=cmd_compare)
 
