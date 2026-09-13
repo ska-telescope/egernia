@@ -514,12 +514,6 @@ def main(argv: list[str] | None = None) -> int:
     run_parser.add_argument("--scenario", default="smoke")
     run_parser.add_argument("--resume", help="existing run directory name to continue")
     run_parser.add_argument("--base-url", help="override the target's TAP root (local ports)")
-    run_parser.add_argument(
-        "--classes",
-        nargs="+",
-        metavar="QNN",
-        help="per-class scenarios only: run these query classes and skip the rest",
-    )
     run_parser.set_defaults(func=cmd_run)
 
     gates_parser = sub.add_parser(
@@ -553,14 +547,17 @@ def main(argv: list[str] | None = None) -> int:
     compare_parser.add_argument(
         "--gates-only", action="store_true", help="run (or reuse) the gates, then stop"
     )
-    compare_parser.add_argument(
-        "--classes",
-        nargs="+",
-        metavar="QNN",
-        help="measure only these query classes (`mix` for the mixed workload) and skip"
-        " the rest; the gates still cover every class",
-    )
     compare_parser.set_defaults(func=cmd_compare)
+
+    # A targeted run measures a few of the grid's classes (`mix` names the
+    # mixed workload), which is a fraction of its rungs; both commands take it.
+    for classes_parser in (run_parser, compare_parser):
+        classes_parser.add_argument(
+            "--classes",
+            nargs="+",
+            metavar="CLASS",
+            help="run only these query classes (QNN, or `mix`) of a per-class scenario",
+        )
 
     publish_parser = sub.add_parser("publish", help="render a comparison run into docs/performance")
     publish_parser.add_argument("--run", required=True, help="run directory name under results/")

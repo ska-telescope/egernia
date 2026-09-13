@@ -39,6 +39,7 @@ capacity checks record smaller local experiments separately.
 ## All runs
 
 - [20260912T225808Z-d43b538d-tap-compare-scaling](20260912T225808Z-d43b538d-tap-compare-scaling/index.md) — the three-server resource-scaling comparison at 8 / 16 / 24 CPUs: egernia scales ×3.6, DaCHS and argus ×1.3
+- [20260908T061813Z-f1cf2c25-tap-compare](20260908T061813Z-f1cf2c25-tap-compare/index.md) — egernia (8 workers) vs CADC argus, equal-CPU parity
 - [20260906T145338Z-7aa14f6a-tap-compare](20260906T145338Z-7aa14f6a-tap-compare/index.md) — egernia vs CADC argus, one-process parity
 - [20260903T160103Z-8fec0e75-tap-compare](20260903T160103Z-8fec0e75-tap-compare/index.md)
 - [20260901T054529Z-3c8add85-tap-compare](20260901T054529Z-3c8add85-tap-compare/index.md)
