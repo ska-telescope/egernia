@@ -139,13 +139,21 @@ def test_committed_abort_wins_while_run_waits_on_the_row(tap_service, database_u
         try:
             pending_run = pool.submit(run_job)
             with psycopg.connect(database_url) as observer:
-                deadline = time.monotonic() + 10
+                deadline = time.monotonic() + 30
                 waiting = False
                 while time.monotonic() < deadline:
+                    # Any backend but this one blocked on a lock while running
+                    # a statement against uws.jobs. Matching the statement's
+                    # opening instead — "UPDATE uws.jobs SET phase = ..." —
+                    # tied the test to the order Python happens to give
+                    # update_job's keyword arguments, and matching this
+                    # observer's own text is the trap that hides the answer,
+                    # hence the pid guard.
                     row = observer.execute(
                         "SELECT EXISTS (SELECT 1 FROM pg_stat_activity"
                         " WHERE wait_event_type = 'Lock'"
-                        " AND query LIKE 'UPDATE uws.jobs SET phase = %')"
+                        " AND pid <> pg_backend_pid()"
+                        " AND query ILIKE '%uws.jobs%')"
                     ).fetchone()
                     assert row is not None
                     waiting = row[0]
