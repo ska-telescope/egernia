@@ -19,7 +19,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Optional, cast
 
-from egernia_core import bootstrap, uws
+from egernia_core import bootstrap, db, uws
 from egernia_core.config import settings
 from egernia_core.db import connection as db_connection
 from egernia_core.observability import (
@@ -132,9 +132,13 @@ class _AbortWatchdog:
     POLL_S = 0.5
     TERMINATE_AFTER_CANCELS = 6  # ~3s of ignored cancels
 
-    def __init__(self, job_id: str, backend_pid: int):
+    def __init__(self, job_id: str, backend_pid: int, signal_url: str):
         self._job_id = job_id
         self._pid = backend_pid
+        # The phase is read from the primary, because that is where uws.jobs
+        # is; the signal goes to the server actually running the statement,
+        # which with read replicas is not the same machine.
+        self._signal_url = signal_url
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
 
@@ -156,39 +160,40 @@ class _AbortWatchdog:
                         "SELECT phase, worker_id FROM uws.jobs WHERE job_id = %s",
                         (self._job_id,),
                     ).fetchone()
-                    if row is not None and row == ("EXECUTING", WORKER_ID):
-                        continue
-                    # aborted (or deleted): interrupt the running statement,
-                    # and keep doing so until execution ends. The signal is
-                    # sent only while the backend still runs this job's
-                    # cursor, so a reused PID is never hit.
-                    if cancels < self.TERMINATE_AFTER_CANCELS:
-                        uws.signal_backend(conn, self._pid, marker)
-                        cancels += 1
-                    else:
-                        log.warning(
-                            "job %s backend %d ignored %d cancels, terminating it",
-                            self._job_id,
-                            self._pid,
-                            cancels,
-                        )
-                        uws.signal_backend(conn, self._pid, marker, terminate=True)
+                if row is not None and row == ("EXECUTING", WORKER_ID):
+                    continue
+                # aborted (or deleted): interrupt the running statement, and
+                # keep doing so until execution ends. The signal is sent only
+                # while the backend still runs this job's cursor, so a reused
+                # PID is never hit.
+                terminate = cancels >= self.TERMINATE_AFTER_CANCELS
+                if terminate:
+                    log.warning(
+                        "job %s backend %d ignored %d cancels, terminating it",
+                        self._job_id,
+                        self._pid,
+                        cancels,
+                    )
+                else:
+                    cancels += 1
+                with db.pinned_connection(self._signal_url) as signaller:
+                    uws.signal_backend(signaller, self._pid, marker, terminate=terminate)
             except Exception:  # never let monitoring kill the execution path
                 log.exception("abort watchdog check failed for job %s", self._job_id)
 
 
-def _reap_backend(job_id: str, pid: Optional[int]) -> None:  # noqa: UP045
+def _reap_backend(job_id: str, pid: Optional[int], signal_url: Optional[str]) -> None:  # noqa: UP045
     """After an abort or error, make sure this job's executing backend is
     really gone. Once the executor abandons its connection nothing else
     stops the server side: PostgreSQL only notices a lost client on the
     next send, so an orphaned backend can keep scanning for minutes. All
     checks and signals are scoped to the backend still running this job's
     cursor, so a reused PID is never touched."""
-    if not pid:
+    if not pid or not signal_url:
         return
     marker = uws.job_query_marker(job_id)
     try:
-        with db_connection() as conn:
+        with db.pinned_connection(signal_url) as conn:
             for attempt in range(8):
                 row = conn.execute(
                     "SELECT state FROM pg_stat_activity WHERE pid = %s AND query LIKE %s",
@@ -292,6 +297,7 @@ def execute_job(job: dict) -> None:
 
 def _execute_job_inner(job: dict, job_id, params, duration) -> None:
     backend_pid = None
+    signal_url = None
     temp_path = None
     log.info("executing job %s", job_id)
     try:
@@ -317,7 +323,13 @@ def _execute_job_inner(job: dict, job_id, params, duration) -> None:
         # stream the statement straight into the result file, so large
         # result sets are never materialized in memory
         result_size = 0
-        with db_connection() as conn, conn.transaction():
+        # The query may run on a read replica (TAP_QUERY_DATABASE_URL); one
+        # carrying a TAP_UPLOAD may not, because its temp tables are a write
+        # and a standby refuses them. Job bookkeeping stays on the primary
+        # either way — it is the `side` connection below and every other
+        # db_connection() in this module.
+        with db_connection(replica_ok=not uploads) as conn, conn.transaction():
+            signal_url = db.pinned_url(conn)
             tap_meta = tap_schema_metadata(conn, _job_tables(job))
             if uploads:
                 create_upload_tables(conn, uploads, settings.query_role)
@@ -356,7 +368,7 @@ def _execute_job_inner(job: dict, job_id, params, duration) -> None:
             # duration) consequently bounds the whole statement, which is
             # what UWS executionDuration means.
             with (
-                _AbortWatchdog(job_id, pid),
+                _AbortWatchdog(job_id, pid, signal_url),
                 conn.cursor() as cur,
                 result_stream(cur, sql, tap_meta, fmt_key, maxrec, 5000) as (chunks, limiter),
             ):
@@ -392,7 +404,7 @@ def _execute_job_inner(job: dict, job_id, params, duration) -> None:
         if temp_path:
             with contextlib.suppress(FileNotFoundError):
                 os.remove(temp_path)
-        _reap_backend(job_id, backend_pid)
+        _reap_backend(job_id, backend_pid, signal_url)
         with db_connection() as conn:
             current = uws.get_job(conn, job_id)
             if current["phase"] != "ABORTED":

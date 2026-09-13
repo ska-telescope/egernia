@@ -262,6 +262,26 @@ because a CPU-bound workload holds few connections at once. The ceiling is
 what the fleet *may* open, and the first slow, I/O-heavy query mix is what
 turns may into does.
 
+### Read replicas for the query path
+
+With `externalDatabase.queryUrl` set, query execution goes to the standbys
+(see [Deployment](deployment.md#read-replicas-for-the-query-path)) and the
+sum above splits between servers. Every process still holds up to
+`config.dbPoolMax` connections to the primary — the UWS job table, ingest,
+upload-bearing queries — and up to `config.dbPoolMax` more spread over the
+standbys, each of which has its own `max_connections`. So the primary's
+ceiling is unchanged, a standby's is roughly the query total divided by how
+many standbys there are, and the fleet's total connection count is up to
+twice what the arithmetic above gives.
+
+The chart's refusal does not know about the split: it keeps checking the
+whole sum against `postgresql.tuning.max_connections`, which is now
+conservative — it can refuse a configuration whose primary would in fact
+have been fine. Raising `max_connections` on a server that has room is the
+answer; the arithmetic is deliberately not made cleverer, because a check
+that trusts a DSN nobody in the cluster has validated would be worse than
+one that over-refuses.
+
 ## Damping
 
 Both paths accept an `autoscaling/v2` `behavior:` block, passed through

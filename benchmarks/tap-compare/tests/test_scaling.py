@@ -218,7 +218,9 @@ def test_a_flat_run_renders_exactly_as_before(protocol, tmp_path):
 
 def _resource_run(tmp_path, tier="8"):
     """One egernia rung (60 s window from t=1000) with cgroup samples: the db
-    burns 2 cores, the api 1 core with 3 python processes, memory flat."""
+    burns 2 cores, the api 1 core with 4 steady python processes (supervisor,
+    resource tracker, 2 workers; one sample sees a health check as a 5th),
+    memory flat."""
     run_dir = tmp_path / "20260905T000000Z-abc12345-tap-compare-scaling"
     (run_dir / "samples").mkdir(parents=True)
     row = {
@@ -266,7 +268,7 @@ def _resource_run(tmp_path, tier="8"):
                     "container": "egernia-tap-api-1",
                     "cpu_usec": int(1e6 * t),
                     "mem_bytes": 2**30,
-                    "python_procs": 3,
+                    "python_procs": 5 if k == 6 else 4,
                 }
             )
         )
@@ -293,7 +295,7 @@ def test_resources_join_cgroup_samples_to_the_rung_window(tmp_path):
     assert res["cpu_seconds_per_request"] == pytest.approx(3.0 * 60.5 / 6000, rel=0.01)
     assert res["mem_mean_bytes"] == 2 * 2**30 + 2**30 + 2**28
     assert res["mem_peak_bytes"] == res["mem_mean_bytes"]
-    assert res["api_workers"] == 2  # three python processes = supervisor + 2 workers
+    assert res["api_workers"] == 2  # 4 steady = supervisor + tracker + 2 workers
 
 
 def test_uncovered_rungs_get_no_resources(tmp_path):

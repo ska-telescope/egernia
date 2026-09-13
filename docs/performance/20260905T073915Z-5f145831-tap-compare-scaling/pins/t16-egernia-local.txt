@@ -1,0 +1,41 @@
+# 2026-09-05T23:11:43Z tier 16 egernia, order: dachs then egernia
+## egernia-db-1
+cpuset=0-15 nanocpus=0 memory=8589934592
+postgres -c shared_buffers=2GB -c effective_cache_size=6GB -c work_mem=64MB -c max_parallel_workers=48 -c max_worker_processes=56
+  PID                 COMMAND
+  557942              postgres -c shared_buffers=2GB -c effective_cache_size=6GB -c work_mem=64MB -c max_parallel_workers=48 -c max_worker_processes=56
+  558162              postgres: io worker 0
+  558164              postgres: io worker 1
+  558165              postgres: io worker 2
+  558166              postgres: checkpointer
+  558167              postgres: background writer
+  558176              postgres: walwriter
+  558177              postgres: autovacuum launcher
+  558178              postgres: logical replication launcher
+  565894              postgres: tap tap 172.18.0.3(34578) idle
+  565895              postgres: tap tap 172.18.0.3(34582) idle
+  565993              postgres: tap tap 172.18.0.4(36254) idle
+  565994              postgres: tap tap 172.18.0.4(36258) idle
+  566015              postgres: tap tap 172.18.0.4(36274) idle
+  566016              postgres: tap tap 172.18.0.4(36284) idle
+## egernia-tap-api-1
+cpuset=0-15 nanocpus=0 memory=4294967296
+/bin/sh -c exec /srv/.venv/bin/uvicorn egernia_api.main:app --host 0.0.0.0 --port "${TAP_API_PORT:-8080}" --workers "${TAP_API_WORKERS:-1}" --backlog "${TAP_API_BACKLOG:-2048}" ${TAP_API_LIMIT_CONCURRENCY:+--limit-concurrency "${TAP_API_LIMIT_CONCURRENCY}"}
+TAP_API_WORKERS=2
+  PID                 COMMAND
+  564324              /srv/.venv/bin/python /srv/.venv/bin/uvicorn egernia_api.main:app --host 0.0.0.0 --port 8080 --workers 2 --backlog 2048
+  565220              /srv/.venv/bin/python -c from multiprocessing.resource_tracker import main;main(6)
+  565221              /srv/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=9) --multiprocessing-fork
+  565222              /srv/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=13) --multiprocessing-fork
+## egernia-tap-executor-1
+cpuset=0-15 nanocpus=0 memory=4294967296
+/srv/.venv/bin/python -m egernia_executor.worker
+  PID                 COMMAND
+  564309              /srv/.venv/bin/python -m egernia_executor.worker
+## SHOW
+effective_cache_size = 6GB
+max_connections = 100
+max_parallel_workers = 48
+max_worker_processes = 56
+shared_buffers = 2GB
+work_mem = 64MB

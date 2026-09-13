@@ -1,0 +1,18 @@
+# DaCHS in the final three-way comparison (../PROTOCOL.md): the parity
+# compose file's 8 CPU / 8 GiB budget placed on its own cores, 16-23, plus
+# its Debian PostgreSQL sized to the container by the same 1/4 rule
+# egernia's and argus's databases follow (dachs-postgres.conf, a conf.d
+# drop-in — the mechanism and the values the scaling run's tier 8 used).
+# Identical in both phases.
+#
+#   docker compose -f benchmarks/tap-compare/docker-compose.dachs.yml \
+#       -f benchmarks/tap-compare/final/pins/dachs.yml up -d --no-build \
+#       --force-recreate
+services:
+  dachs:
+    cpus: 8
+    cpuset: "16-23"
+    mem_limit: 8g
+    volumes:
+      # relative to the first compose file's directory (benchmarks/tap-compare)
+      - ./final/pins/dachs-postgres.conf:/etc/postgresql/17/main/conf.d/90-final.conf:ro
