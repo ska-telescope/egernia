@@ -66,6 +66,84 @@ measures the servers one at a time per tier into one run directory
 (`compare --tier <tier> --only <target>`); `publish` renders one section
 per tier. The parity protocol under `config/` is untouched.
 
+## The third target: CADC argus (`argus/`)
+
+The parity protocol run against the OpenCADC CAOM2 TAP service instead of
+DaCHS (tag `tap-compare-argus-prereg-v1`): the vendor image over a
+PostgreSQL 17 + pgsphere that holds the corpus as argus's own
+`caom2.ObsCore` (`docker-compose.argus.yml`, `targets/argus/`), and a
+config directory whose `scenarios.yaml` is `config/`'s verbatim
+(`--config-dir benchmarks/tap-compare/argus`, targets `egernia-local
+argus-local`). What was decided to put argus in DaCHS's seat, and why, is
+in [`argus/PROTOCOL.md`](argus/PROTOCOL.md).
+
+### The equal-CPU variant (`argus-equal-cpu/`)
+
+The same protocol with egernia's API at one uvicorn worker per pinned core
+(`TAP_API_WORKERS=8`, PostgreSQL's parallel budget re-derived by the
+documented rule; `argus-equal-cpu/egernia-equalcpu.yml`), because a Tomcat
+uses all eight cores for CPU-bound work where one uvicorn worker uses one
+(tag `tap-compare-argus-equalcpu-prereg-v1`;
+[`argus-equal-cpu/PROTOCOL.md`](argus-equal-cpu/PROTOCOL.md)). Targets
+`egernia-local-equalcpu argus-local`, `--config-dir
+benchmarks/tap-compare/argus-equal-cpu`.
+
+## The final three-way comparison (`final/`)
+
+The experiment whose **two tables replace every earlier performance table**
+(tag `tap-compare-final-prereg-v1`): the parity protocol run against all
+three servers at once — egernia, GAVO DaCHS and CADC argus, each on 8 CPUs
+and 8 GiB, on **disjoint cpusets** (egernia 0–7, argus 8–15, DaCHS 16–23,
+generators 24–29) so the rungs interleave A,B,C per cell — in two phases
+that differ in one thing only:
+
+- **Table A**, `PHASE=a`: egernia with one uvicorn worker (the deployment
+  most operators run).
+- **Table B**, `PHASE=b`: egernia with eight, one per pinned core, against
+  *the same* DaCHS and argus, unchanged — which makes their two
+  measurements a reproducibility check on them.
+
+The grid is the parity grid with the scaling protocol's 20 s + 60 s windows
+and `c=16` dropped: 864 rungs per phase, ≈ 42 h for both. Design, sizing
+rules, grid arithmetic, hypotheses and threats to validity are in
+[`final/PROTOCOL.md`](final/PROTOCOL.md); `final/run.sh` brings the three
+stacks up, verifies every promise the pins make (row counts, `relkind`,
+`SHOW` of every setting, worker counts, cpusets, argus's truncated job
+store, the corpus sha, foreign containers) and refuses to measure if
+anything is off.
+
+```bash
+PHASE=a nohup setsid benchmarks/tap-compare/final/run.sh > final-a.log 2>&1 &
+uv run --group tap-compare python benchmarks/tap-compare publish --run <run>
+```
+
+## The three-server resource-scaling comparison (`scaling-three-way/`)
+
+The data behind the paper's vertical-scaling **figure** (tag
+`tap-compare-scaling-threeway-prereg-v1`): the parity workload measured at
+**8 / 16 / 24 CPUs and GiB** against **all three** servers, each sized at
+each tier by its own documented rule. It replaces the two-server
+`scaling/` run, which has no argus and predates PR #160.
+
+At tier 8 all three fit the host (8 + 8 + 8 server cores + 6 for the
+generator = 30) and interleave A,B,C; at 16 and 24 they cannot, so each is
+measured alone with the others **stopped** — never merely idle, because
+argus keeps draining its queue. The grid is narrow because a figure needs
+fewer cells than a table: the mix plus Q01, Q05, Q11 and Q13, both formats,
+c ∈ {8, 32}, 3 repetitions — 540 rungs, ≈ 13.4 h. The ladder stops at 32 on
+evidence: in the published scaling run c=64 came in *below* c=32 at every
+tier for both servers.
+
+Design, per-tier sizing, grid arithmetic, hypotheses and threats to validity
+are in [`scaling-three-way/PROTOCOL.md`](scaling-three-way/PROTOCOL.md);
+`scaling-three-way/run.sh` carries the final comparison's driver discipline
+(verification before measuring, the concurrent-measurement interlock,
+telemetry from the first rung, the pins recorded as applied).
+
+```bash
+nohup setsid benchmarks/tap-compare/scaling-three-way/run.sh > s3.log 2>&1 &
+```
+
 ## Fairness rules (lane A — the only lane)
 
 This harness is **never pointed at a production service someone else

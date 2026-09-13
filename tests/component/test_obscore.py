@@ -1,6 +1,7 @@
-"""ObsCore 1.1 end to end (package 12): the odp bootstrap derives the
-ivoa.obscore view, TAP publishes and serves it, and the declarations a
-validator reads (capabilities, /tables) say so."""
+"""ObsCore 1.1 end to end (package 12): the odp bootstrap materialises
+ivoa.obscore from the ODP tables, TAP publishes and serves it, the triggers
+keep it current, and the declarations a validator reads (capabilities,
+/tables) say so."""
 
 import copy
 
@@ -177,14 +178,12 @@ _ONLY_BITMAP_SCANS = (
 
 def test_a_did_lookup_can_use_the_trigram_index(tap_service, api_url, database_url):
     """A leading-wildcard LIKE on obs_publisher_did used to evaluate the
-    five-way DID expression, correlated subqueries included, for every
-    product: no index could hold that expression. Now the expression is a
-    function call and the bootstrap indexes it with pg_trgm — and the index
-    is only ever used if its expression is structurally the view's, which is
-    what the plan below proves. Sequential scans, and the filtered scans of
-    another index that stand in for one, are switched off because a planner
-    facing a handful of rows would rightly prefer either; what is left is the
-    bitmap scan a GIN index provides — if its expression matches."""
+    five-way DID expression for every product. The DID is a stored column of
+    the materialised relation now, with a pg_trgm index the bootstrap owns.
+    Sequential scans, and the filtered scans of another index that stand in
+    for one, are switched off because a planner facing a handful of rows
+    would rightly prefer either; what is left is the bitmap scan a GIN index
+    provides."""
     payload = copy.deepcopy(SRC_INGESTION_EXAMPLE)
     payload["project_id"] = "obscore-lookup"
     created = httpx.post(f"{api_url}/notifications", json=payload, timeout=30)
@@ -196,7 +195,7 @@ def test_a_did_lookup_can_use_the_trigram_index(tap_service, api_url, database_u
             f"SELECT obs_id FROM ivoa.obscore WHERE obs_publisher_did LIKE '{pattern}'",
             *_ONLY_BITMAP_SCANS,
         )
-        assert "data_products_obscore_did_trgm" in plan, plan
+        assert "obscore_did_trgm" in plan, plan
 
     # and the rows an index scan yields are the rows: the whole key chain,
     # reachable by equality as well
@@ -217,32 +216,136 @@ def test_a_did_lookup_can_use_the_trigram_index(tap_service, api_url, database_u
         f"SELECT obs_id FROM ivoa.obscore WHERE obs_publisher_did = '{did}'",
         *_ONLY_BITMAP_SCANS,
     )
-    assert "data_products_obscore_did_trgm" in plan, plan
+    assert "obscore_did_key" in plan, plan  # equality: the unique key itself
 
 
-def test_a_query_that_reads_no_access_column_never_touches_artifacts(tap_service, database_url):
-    """The access columns come from a LEFT JOIN to one artifact per product.
-    A GROUP BY over the view that reads none of them used to probe
-    srcnet.artifacts once per matching product all the same, because a
-    `LIMIT 1` subquery is not one the planner can prove single-row and so
-    not one it can remove. The aggregate form is."""
-    plan = _plan(
-        database_url,
+# The materialised relation must hold exactly what the projection over the
+# ODP tables yields: same rows, same bytes. md5 per row, summed, over every
+# column, with the projection evaluated live for the comparison.
+def _checksum(conn, relation: str) -> tuple[int, str]:
+    return conn.execute(
+        f"SELECT count(*), coalesce(sum(('x' || left(md5(t::text), 15))::bit(60)::bigint), 0)::text"
+        f" FROM ({relation}) AS t"
+    ).fetchone()
+
+
+def _relation_matches_projection(database_url: str) -> None:
+    import psycopg
+    from egernia_api.plugins import obscore
+
+    with psycopg.connect(database_url) as conn:
+        table = _checksum(conn, "SELECT * FROM ivoa.obscore")
+        projection = _checksum(conn, obscore.select_sql())
+    assert table == projection, (table, projection)
+
+
+def test_a_scan_over_the_relation_joins_nothing(tap_service, database_url):
+    """What the materialisation buys: an aggregate over the collection, or a
+    result that reads access_url, is a scan of one relation — no hash of
+    observations against every product, no probe of artifacts per row."""
+    for sql in (
         "SELECT obs_collection, dataproduct_type, count(*), min(t_min), max(t_max)"
         " FROM ivoa.obscore WHERE calib_level >= 2 GROUP BY obs_collection, dataproduct_type",
+        "SELECT access_url, obs_collection FROM ivoa.obscore WHERE obs_collection = 'x'",
+    ):
+        plan = _plan(database_url, sql)
+        assert "artifacts" not in plan and "observations" not in plan and "Join" not in plan, plan
+
+
+def test_the_relation_holds_exactly_the_projection_and_follows_every_write(
+    tap_service, api_url, database_url
+):
+    """Read-after-write, in the writer's own transaction: a posted document is
+    on ivoa.obscore when the POST returns; an amended artifact or observation
+    moves the derived columns; a deleted document takes its rows with it.
+    After each step the whole relation checksums identically to the live
+    projection."""
+    import psycopg
+
+    payload = copy.deepcopy(SRC_INGESTION_EXAMPLE)
+    payload["project_id"] = "obscore-sync"
+    observation = payload["observations"][0]
+    product = observation["scheduling_blocks"][0]["execution_blocks"][0]["data_products"][0]
+    did_prefix = f"ivo://skao.int/~?obscore-sync/{observation['obs_id']}/"
+
+    created = httpx.post(f"{api_url}/notifications", json=payload, timeout=30)
+    assert created.status_code == 201, created.text
+    lines = _sync_csv(
+        tap_service,
+        "SELECT obs_collection, access_url FROM ivoa.obscore"
+        f" WHERE obs_publisher_did LIKE '{did_prefix}%'",
     )
-    assert "artifacts" not in plan, plan
-    # a query that does read them still gets them, from the artifact it always did
-    plan = _plan(database_url, "SELECT access_url FROM ivoa.obscore")
-    assert "artifacts" in plan, plan
+    collection = observation.get("collection") or "unclassified"
+    assert len(lines) > 1 and all(line.startswith(f"{collection},") for line in lines[1:])
+    science = next(a for a in product["artifacts"] if a["semantics"] == "science")
+    assert any(science["access_url"] in line for line in lines[1:])
+    _relation_matches_projection(database_url)
+
+    # amend the collection on the observation: every product row follows
+    amended = httpx.patch(
+        f"{api_url}/notifications/obscore-sync",
+        json={
+            "table": "observations",
+            "match": {"obs_id": observation["obs_id"]},
+            "values": {"collection": "cycle-9"},
+        },
+        timeout=30,
+    )
+    assert amended.status_code == 200, amended.text
+    lines = _sync_csv(
+        tap_service,
+        "SELECT DISTINCT obs_collection FROM ivoa.obscore"
+        f" WHERE obs_publisher_did LIKE '{did_prefix}%'",
+    )
+    assert lines[1:] == ["cycle-9"], lines
+    _relation_matches_projection(database_url)
+
+    # amend the science artifact's URL: the product's access_url follows
+    amended = httpx.patch(
+        f"{api_url}/notifications/obscore-sync",
+        json={
+            "table": "artifacts",
+            "match": {"artifact_id": science["artifact_id"]},
+            "values": {"access_url": "https://example.org/amended.fits"},
+        },
+        timeout=30,
+    )
+    assert amended.status_code == 200, amended.text
+    lines = _sync_csv(
+        tap_service,
+        "SELECT access_url FROM ivoa.obscore"
+        f" WHERE obs_publisher_did = '{did_prefix}{observation['scheduling_blocks'][0]['sbd_id']}"
+        f"/{observation['scheduling_blocks'][0]['execution_blocks'][0]['eb_id']}"
+        f"/{product['product_id']}'",
+    )
+    assert lines[1:] == ["https://example.org/amended.fits"], lines
+    _relation_matches_projection(database_url)
+
+    # re-posting the document is idempotent on the relation too
+    reposted = httpx.post(f"{api_url}/notifications", json=payload, timeout=30)
+    assert reposted.status_code == 201, reposted.text
+    _relation_matches_projection(database_url)
+
+    # and a deletion's cascade takes the rows with it
+    deleted = httpx.delete(f"{api_url}/notifications/obscore-sync", timeout=30)
+    assert deleted.status_code == 200, deleted.text
+    lines = _sync_csv(
+        tap_service,
+        f"SELECT count(*) FROM ivoa.obscore WHERE obs_publisher_did LIKE '{did_prefix}%'",
+    )
+    assert lines[1:] == ["0"], lines
+    _relation_matches_projection(database_url)
+    with psycopg.connect(database_url) as conn:
+        assert conn.execute("SELECT count(*) FROM ivoa.obscore").fetchone()[0] > 0
 
 
-def test_the_view_join_has_a_foreign_key_to_estimate_from(tap_service, database_url):
-    """data_products joins observations two levels up the hierarchy. The
-    planner estimates a join from the foreign keys between the two relations
-    joined, and with none it multiplied the selectivities of key columns that
-    are perfectly correlated — 10,000x low on the comparison corpus, enough
-    to sort-and-group where a hash aggregate belonged."""
+def test_the_backfill_join_has_a_foreign_key_to_estimate_from(tap_service, database_url):
+    """data_products joins observations two levels up the hierarchy (in the
+    backfill and the triggers, and in any ADQL that joins them directly).
+    The planner estimates a join from the foreign keys between the two
+    relations joined, and with none it multiplied the selectivities of key
+    columns that are perfectly correlated — 10,000x low on the comparison
+    corpus, enough to sort-and-group where a hash aggregate belonged."""
     import psycopg
 
     with psycopg.connect(database_url) as conn:
@@ -255,3 +358,48 @@ def test_the_view_join_has_a_foreign_key_to_estimate_from(tap_service, database_
     assert row[0].startswith(
         "FOREIGN KEY (project_id, obs_id) REFERENCES srcnet.observations(project_id, obs_id)"
     )
+
+
+def test_a_deployment_still_serving_the_view_is_migrated_to_the_table(tap_service, database_url):
+    """Before this release ivoa.obscore was a view over the ODP tables. Its
+    first bootstrap on the new release must swap the table in under the same
+    name with every row the view had, without anything but the bootstrap
+    running — and leave the triggers behind so the next write is followed."""
+    import psycopg
+    from egernia_core import bootstrap
+    from egernia_core.metadata.plugins import active_plugins
+
+    with psycopg.connect(database_url) as conn:
+        before = _checksum(conn, "SELECT * FROM ivoa.obscore")
+        assert before[0] > 0
+        with conn.transaction():
+            conn.execute("CREATE TABLE ivoa.obscore_prev AS SELECT * FROM ivoa.obscore")
+            conn.execute("DROP TABLE ivoa.obscore")
+            conn.execute("CREATE VIEW ivoa.obscore AS SELECT * FROM ivoa.obscore_prev")
+            conn.execute(
+                "COMMENT ON VIEW ivoa.obscore IS"
+                " 'ObsCore 1.1 over the ODP metadata (definition 6a2b0d29a829f9d4)'"
+            )
+        with conn.transaction():
+            bootstrap.bootstrap(conn, active_plugins())
+        kind = conn.execute("SELECT relkind FROM pg_class WHERE oid = 'ivoa.obscore'::regclass")
+        assert kind.fetchone()[0] == "r"
+        assert _checksum(conn, "SELECT * FROM ivoa.obscore") == before
+        indexes = {
+            row[0]
+            for row in conn.execute(
+                "SELECT indexname FROM pg_indexes WHERE schemaname = 'ivoa'"
+                " AND tablename = 'obscore'"
+            )
+        }
+        assert {"obscore_did_key", "obscore_did_trgm", "obscore_spoint_gist"} <= indexes
+        triggers = {
+            row[0]
+            for row in conn.execute(
+                "SELECT tgrelid::regclass::text FROM pg_trigger WHERE tgname LIKE 'obscore_sync_%'"
+            )
+        }
+        assert triggers == {"srcnet.data_products", "srcnet.artifacts", "srcnet.observations"}
+        conn.execute("DROP TABLE ivoa.obscore_prev")
+        conn.commit()
+    _relation_matches_projection(database_url)

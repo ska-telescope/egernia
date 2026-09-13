@@ -1,0 +1,18 @@
+# Provenance of the vendored CAOM2 DDL (tests/test_argus.py recomputes these).
+# Upstream: https://github.com/opencadc/caom2, commit 733b4cd87c9005215b7cdfeba1240607e8f2be12
+#   (main, 2026-07-20; argus/VERSION 1.0.27), path caom2persistence/src/main/resources/postgresql/.
+# Copied byte for byte; init/01-caom2.sh substitutes <schema> -> caom2 at load time.
+# Why these eight and no others: they create every table and view argus's
+# TAP_SCHEMA describes for the caom2 schema (caom2.tap_schema_content11.sql:
+# Observation + ObservationMember, Plane + ProvenanceInput, Artifact, Part,
+# Chunk, HarvestState, HarvestSkipURI, SIAv1). caom2.ObsCore.sql is replaced
+# by init/02-obscore.sql (the corpus as a table); ModelVersion, deleted,
+# extra_indices and permissions serve CADC's harvester and roles, not a query.
+98e86407b2baf0bbdc29545420d2414cfc601c2c9c9b5b247597cafe35489d1f  caom2.Artifact.sql
+25dc513f5fc357bbf13d202dd67dabc565000a18d1028bd4f0cc5691df69d13a  caom2.Chunk.sql
+b14b424664419b4e689261640d707ccc47492b408cb16d542816cd6e50d9ac27  caom2.HarvestSkipURI.sql
+544ddf14d8a974cfc341b77f2ecd0dd13efca8bf1f8478214d54c17e0255098c  caom2.HarvestState.sql
+3e4f6d8e1321abb881a0b24aa4c45475041bfacdc0cdc213946553b89dbcc6fb  caom2.Observation.sql
+15c0c5f03cdb582ac884941e94812bc074a8ec59ee43e79148c26c125277ef85  caom2.Part.sql
+bc422cf1473ac9f4905350b8affb493f56a9071372103480b38a0053b5fe7385  caom2.Plane.sql
+9151bc95687457a467012a7c50fd4d21476260b0390d7459de1cccb9ed2118c5  caom2.SIAv1.sql

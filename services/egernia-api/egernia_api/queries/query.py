@@ -271,7 +271,10 @@ def _result_chunks(
     # tagged with the request id: a statement in pg_stat_activity, or in the
     # server log, then names the request it came from
     sql = tag_sql(sql)
-    with db_connection() as conn, conn.transaction():
+    # The query itself may run on a read replica (TAP_QUERY_DATABASE_URL);
+    # one carrying a TAP_UPLOAD may not, because its temp tables are a write
+    # and a standby refuses them.
+    with db_connection(replica_ok=not uploads) as conn, conn.transaction():
         done = threading.Event()
         watcher = None
         tap_meta = tap_schema_metadata(conn, prepared["tables"])
