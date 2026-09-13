@@ -1,0 +1,33 @@
+# 2026-09-12T02:56:06Z phase b, argus
+## tap-compare-argus-1
+cpuset=8-15 nanocpus=0 memory=3221225472
+/usr/bin/cadc-tomcat-start
+  PID                 COMMAND
+  2493777             /bin/bash /usr/bin/cadc-tomcat-start
+  2494007             /usr/lib/jvm/jre/bin/java -XX:+HeapDumpOnOutOfMemoryError -XX:OnError=cat hs_err_pid%p.log -Xms512m -Xmx2048m -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -Djavax.sql.DataSource.Factory=org.apache.tomcat.dbcp.dbcp2.BasicDataSourceFactory -classpath /usr/share/tomcat/bin/bootstrap.jar:/usr/share/tomcat/bin/tomcat-juli.jar: -Dcatalina.base=/usr/share/tomcat -Dcatalina.home=/usr/share/tomcat -Djava.endorsed.dirs= -Djava.io.tmpdir=/var/cache/tomcat/temp -Djava.util.logging.config.file=/usr/share/tomcat/conf/logging.properties -Djava.util.logging.manager=org.apache.juli.ClassLoaderLogManager org.apache.catalina.startup.Bootstrap start
+## tap-compare-argus-db-1
+cpuset=8-15 nanocpus=0 memory=5368709120
+postgres -c shared_buffers=1280MB -c effective_cache_size=3840MB -c max_parallel_workers=32 -c max_worker_processes=40
+  PID                 COMMAND
+  2491326             postgres -c shared_buffers=1280MB -c effective_cache_size=3840MB -c max_parallel_workers=32 -c max_worker_processes=40
+  2491498             postgres: checkpointer
+  2491499             postgres: background writer
+  2491503             postgres: walwriter
+  2491504             postgres: autovacuum launcher
+  2491506             postgres: logical replication launcher
+  2500090             postgres: tap argus 172.20.0.3(44716) idle
+  2500171             postgres: tap argus 172.20.0.3(44718) idle
+  2500367             postgres: tap argus 172.20.0.3(44724) idle
+  2518660             postgres: tap argus 172.20.0.3(47664) idle
+  2520997             postgres: tap argus 172.20.0.3(33540) idle
+  2521968             postgres: tap argus 172.20.0.3(33556) idle
+  2521969             postgres: tap argus 172.20.0.3(33562) idle
+## SHOW
+effective_cache_size = 3840MB
+max_connections = 100
+max_parallel_workers = 32
+max_worker_processes = 40
+shared_buffers = 1280MB
+work_mem = 4MB
+## uws.job rows
+119

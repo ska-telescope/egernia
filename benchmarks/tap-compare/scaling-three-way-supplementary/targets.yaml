@@ -1,0 +1,39 @@
+# The three-server resource-scaling comparison (scaling-three-way/PROTOCOL.md).
+# Lane A only: every target here is a locally deployed server the operator
+# controls. One descriptor per server — the tier, not the target, changes the
+# pins, and the driver records the pins it actually applied per tier.
+targets:
+  - name: egernia-scaling3
+    server: egernia
+    base_url: http://localhost:8080/tap
+    portable_only: true
+    notes: >-
+      The repository's own docker-compose.yml stack (seeded with
+      `uv run --group dataset python -m egernia_dataset.seed`, ivoa.obscore
+      the denormalised table of PR #160, no TAP_QUERY_DATABASE_URL — one
+      database) under scaling-three-way/pins/egernia-<tier>.yml: the tier's
+      cpuset, memory split 1/2 db, 1/4 api, 1/4 executor, API workers 1/2/4
+      and PostgreSQL sized by docs/postgres-performance.md. The pins are
+      scaling/pins/egernia-<tier>.yml byte for byte.
+  - name: dachs-scaling3
+    server: dachs
+    base_url: http://localhost:8081/tap
+    portable_only: true
+    notes: >-
+      GAVO DaCHS from the Debian gavodachs2-server package
+      (benchmarks/tap-compare/docker-compose.dachs.yml), serving the exported
+      ObsCore corpus via //obscore#publishObscoreLike, under
+      scaling-three-way/pins/dachs-<tier>.yml: the tier's cpus, cpuset and
+      memory, its bundled PostgreSQL sized to the container by the 1/4 rule.
+  - name: argus-scaling3
+    server: argus
+    base_url: http://localhost/argus
+    portable_only: true
+    notes: >-
+      CADC argus 1.0.27 from its vendor image over PostgreSQL 17 + pgsphere
+      (benchmarks/tap-compare/docker-compose.argus.yml), serving the exported
+      ObsCore corpus as a plain caom2.obscore table; configuration in
+      benchmarks/tap-compare/targets/argus/, rationale in argus/PROTOCOL.md.
+      Under scaling-three-way/pins/argus-<tier>.yml: the tier's cpuset, the
+      3/8 Tomcat + 5/8 PostgreSQL memory split, the vendor JVM defaults, and
+      its UWS job store truncated before every block.

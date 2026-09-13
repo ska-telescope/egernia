@@ -1,0 +1,29 @@
+# 2026-09-13T11:59:59Z tier 24 argus
+## tap-compare-argus-1
+cpuset=0-23 nanocpus=0 memory=9663676416
+/usr/bin/cadc-tomcat-start
+  PID                 COMMAND
+  4036959             /bin/bash /usr/bin/cadc-tomcat-start
+  4037080             /usr/lib/jvm/jre/bin/java -XX:+HeapDumpOnOutOfMemoryError -XX:OnError=cat hs_err_pid%p.log -Xms512m -Xmx2048m -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -Djavax.sql.DataSource.Factory=org.apache.tomcat.dbcp.dbcp2.BasicDataSourceFactory -classpath /usr/share/tomcat/bin/bootstrap.jar:/usr/share/tomcat/bin/tomcat-juli.jar: -Dcatalina.base=/usr/share/tomcat -Dcatalina.home=/usr/share/tomcat -Djava.endorsed.dirs= -Djava.io.tmpdir=/var/cache/tomcat/temp -Djava.util.logging.config.file=/usr/share/tomcat/conf/logging.properties -Djava.util.logging.manager=org.apache.juli.ClassLoaderLogManager org.apache.catalina.startup.Bootstrap start
+## tap-compare-argus-db-1
+cpuset=0-23 nanocpus=0 memory=16106127360
+postgres -c shared_buffers=3840MB -c effective_cache_size=11520MB -c max_parallel_workers=80 -c max_worker_processes=88
+  PID                 COMMAND
+  4036742             postgres -c shared_buffers=3840MB -c effective_cache_size=11520MB -c max_parallel_workers=80 -c max_worker_processes=88
+  4036849             postgres: checkpointer
+  4036850             postgres: background writer
+  4036852             postgres: walwriter
+  4036853             postgres: autovacuum launcher
+  4036854             postgres: logical replication launcher
+  4037182             postgres: tap argus 172.20.0.3(37846) idle
+  4037184             postgres: tap argus 172.20.0.3(37858) idle
+  4037234             postgres: tap argus 172.20.0.3(58500) idle
+## SHOW
+effective_cache_size = 11520MB
+max_connections = 100
+max_parallel_workers = 80
+max_worker_processes = 88
+shared_buffers = 3840MB
+work_mem = 4MB
+## uws.job rows
+0

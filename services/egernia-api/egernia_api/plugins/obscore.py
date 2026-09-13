@@ -1,19 +1,27 @@
 """ObsCore 1.1 (`ivoa.obscore`) over the ODP metadata.
 
-The SRCNet ODP model is ObsCore-derived, so compliance is a *view*, not a
-table: `srcnet.data_products` already carries most of the mandatory columns
-under their exact ObsCore names, `srcnet.observations` has the collection
-and provenance names, and `srcnet.artifacts` the access columns. The view
-is created by the odp plugin's bootstrap (`MetadataPlugin.post_ensure`), so
-it exists exactly when its source tables do, and replaced on every startup
-so a mapping change migrates forward.
+The SRCNet ODP model is ObsCore-derived, so compliance is a *projection*:
+`srcnet.data_products` already carries most of the mandatory columns under
+their exact ObsCore names, `srcnet.observations` has the collection and
+provenance names, and `srcnet.artifacts` the access columns. That projection
+used to be a view, and the join it carried was what a scan-heavy ADQL query
+paid: a GROUP BY over the collection hashed observations against every
+product, and a result that read ``access_url`` probed artifacts once per
+row. So the projection is materialised — ``ivoa.obscore`` is a real table
+with exactly the projection's columns, built once at bootstrap from the ODP
+tables and kept current by statement-level triggers on them (see
+``trigger_sql``), in the same transaction as the write. A row is visible on
+``ivoa.obscore`` the moment its notification's ingest commits; there is no
+refresh and no lag. The table is created by the odp plugin's bootstrap
+(`MetadataPlugin.post_ensure`), so it exists exactly when its source tables
+do, and rebuilt when its definition changes (see ``ensure_obscore``).
 
 Column metadata is transcribed from REC-ObsCore-v1.1-20170509 Table 6 (the
 TAP_SCHEMA values for the mandatory fields); utypes carry the ``obscore:``
 prefix the table's caption says it omits. One non-standard column rides
 along: ``s_region_geom``, the pgsphere footprint the ingest pipeline
 derives from ``s_region``, registered with ``std = 0`` so ADQL
-``INTERSECTS``/``CONTAINS`` work on the view too.
+``INTERSECTS``/``CONTAINS`` work on the table too.
 
 Mapping decisions (each visible in the SQL below):
 
@@ -24,17 +32,13 @@ Mapping decisions (each visible in the SQL below):
 - ``obs_publisher_did`` is a configurable prefix (``TAP_OBSCORE_DID_PREFIX``)
   plus the primary-key chain — a DID must be permanent, so its shape is the
   hierarchy's identity and nothing derived — with each key component
-  percent-encoded (see ``_did_component``). The same expression is indexed
-  on ``srcnet.data_products`` with pg_trgm, so a lookup by DID — equality,
-  a prefix, or a ``LIKE '%<project>/%'`` — is an index scan and not an
-  evaluation of the expression over every product.
+  percent-encoded (see ``_did_component``). It is the table's unique key and
+  carries a pg_trgm index, so a lookup by DID — equality, a prefix, or a
+  ``LIKE '%<project>/%'`` — is an index scan.
 - ``calib_level`` is passed through untranslated; srcnet's declared meaning
   and ObsCore 1.1's disagree at level 1 (see ``docs/obscore.md``).
 - ``access_*`` come from one representative science artifact per product:
-  the first by ``artifact_id``, picked by an aggregate rather than ``ORDER
-  BY ... LIMIT 1`` so the planner can prove the join yields one row and
-  drop it from queries that never read the access columns (see
-  ``view_sql``); a NULL ``access_url`` is spec-legal.
+  the first by ``artifact_id``; a NULL ``access_url`` is spec-legal.
 - ``access_estsize`` converts the model's bytes to the REC's kbyte.
 - ``s_resolution`` is the synthesized beam size (already arcseconds).
 - ``t_resolution`` and ``em_res_power`` are NULL: the model does not carry
@@ -360,7 +364,12 @@ OBSCORE_COLUMNS: list[ObsCoreColumn] = [
 # doubles as the obscore table's utype in TAP_SCHEMA
 DATAMODEL_IVOID = "ivo://ivoa.net/std/ObsCore#core-1.1"
 
-# A PublisherDID lands inside a SQL string literal in the view definition,
+TABLE = "ivoa.obscore"
+# built beside the live relation, swapped in by rename once complete
+BUILD = "ivoa.obscore_build"
+COMMENT_PREFIX = "ObsCore 1.1 over the ODP metadata"
+
+# A PublisherDID lands inside a SQL string literal in the table definition,
 # so its alphabet is closed: IVOA identifier characters only, quotes and
 # whitespace impossible by construction.
 _DID_PREFIX_RE = re.compile(r"^[A-Za-z0-9:/~?._#+-]+$")
@@ -381,13 +390,13 @@ def did_prefix() -> str:
 # in a key would either forge a path segment ('/'), truncate the identifier
 # ('#', '?'), or make it unparseable (a space, a stray '%') — and a
 # PublisherDID is a permanent promise, so an ambiguous one cannot be taken
-# back later.
+# back later. Encoding every other character also makes the DID injective
+# over the key chain, which is what lets it be the table's unique key.
 DID_SAFE_CLASS = "A-Za-z0-9._~-"
 
-# A configured column name is interpolated into the view's DDL, where no
-# parameter can be bound, so the alphabet is closed to plain lower-case SQL
-# identifiers. Anything else — a quote, a space, a parenthesis — is refused
-# before it reaches a CREATE VIEW.
+# A configured column name is interpolated into DDL, where no parameter can
+# be bound, so the alphabet is closed to plain lower-case SQL identifiers.
+# Anything else — a quote, a space, a parenthesis — is refused first.
 _DID_COLUMN_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
 
 
@@ -396,10 +405,12 @@ def did_key_columns() -> tuple[str, ...]:
 
     Configured (``TAP_OBSCORE_DID_COLUMNS``, dot-separated) because a
     deployment whose ODP model nests differently has a different identity
-    chain. Two things are the operator's to get right and neither can be
-    checked here: the chain has to identify a data product *uniquely*, or two
-    products share a DID; and changing it changes every DID this service has
-    ever published, which a permanent identifier is not supposed to do.
+    chain. Two things are the operator's to get right: the chain has to
+    identify a data product *uniquely* — the table's unique key is the DID,
+    so a chain that does not fails the bootstrap's backfill with a duplicate
+    key rather than publishing two products under one identifier — and
+    changing it changes every DID this service has ever published, which a
+    permanent identifier is not supposed to do.
 
     A column that does not exist on srcnet.data_products fails at bootstrap,
     where PostgreSQL names it.
@@ -417,21 +428,11 @@ def did_key_columns() -> tuple[str, ...]:
     return columns
 
 
-# The percent-encoder lives in a function of its own rather than inline in
-# the view. Inline it was a correlated subquery, and a subquery in the DID
-# expression cost three things at once: an index expression may not contain
-# one, so no lookup by DID could ever use an index; a correlated SubPlan is
-# parallel-restricted, so a filter on the DID kept every scan of the view on
-# one core; and the planner has no statistics for such an expression, so it
-# estimated one row and drove the join from the wrong side. As a function
-# the expression is a plain call: indexable, parallel safe, and never
-# evaluated for the common row at all (see ``_did_component``).
+# The percent-encoder is a function rather than an inline subquery: inline,
+# a correlated SubPlan was parallel-restricted and unindexable, and the
+# planner had no statistics for it. As a function the expression is a plain
+# call, and never evaluated for the common row at all (see ``_did_component``).
 DID_ENCODE_FUNCTION = "ivoa.did_encode"
-
-# The trigram index over the DID expression (pg_trgm). Trigrams serve every
-# lookup shape a DID gets — equality, a prefix, a component in the middle
-# (``LIKE '%<project>/%'``) — where a btree would serve only the first two.
-DID_INDEX = "data_products_obscore_did_trgm"
 
 
 def did_encode_sql() -> str:
@@ -441,10 +442,8 @@ def did_encode_sql() -> str:
     encoding is a fold over the characters: unreserved ones survive,
     everything else becomes ``%XX`` per UTF-8 byte (upper-case hex, as RFC
     3986 recommends). ``convert_to``, ``encode`` and the ``regexp_*``
-    functions are all IMMUTABLE and PARALLEL SAFE, so the function is too,
-    and that is what lets it appear in an index expression and in a
-    parallel worker. STRICT: a NULL component is a NULL DID, as ``||`` would
-    make it anyway.
+    functions are all IMMUTABLE and PARALLEL SAFE, so the function is too.
+    STRICT: a NULL component is a NULL DID, as ``||`` would make it anyway.
     """
     return (
         f"CREATE OR REPLACE FUNCTION {DID_ENCODE_FUNCTION}(component text) RETURNS text\n"
@@ -461,9 +460,8 @@ def _did_component(column: str) -> str:
     """SQL for one percent-encoded component of the DID path.
 
     The guard in front is not decoration: the encoder splits the string
-    into one row per character, and this view is meant to be scanned whole.
-    Real identifiers are already clean, so the common row pays one anchored
-    regexp match and never calls the function.
+    into one row per character. Real identifiers are already clean, so the
+    common row pays one anchored regexp match and never calls the function.
     """
     return (
         f"CASE WHEN {column} ~ '^[{DID_SAFE_CLASS}]*$' THEN {column}"
@@ -473,192 +471,330 @@ def _did_component(column: str) -> str:
 
 def did_sql(alias: str = "") -> str:
     """The obs_publisher_did expression over the data_products key columns,
-    qualified with ``alias`` when given.
-
-    One builder for the view and the index, because the planner uses an
-    expression index only for an expression that is structurally identical
-    to the one in the query — and the view's is what every query carries.
-    """
+    qualified with ``alias`` when given. One builder for the backfill and
+    the triggers, so every row's DID is computed by the same text."""
     prefix = f"{alias}." if alias else ""
     return f"'{did_prefix()}' || " + " || '/' || ".join(
         _did_component(f"{prefix}{column}") for column in did_key_columns()
     )
 
 
-def did_index_sql() -> str:
-    return (
-        f"CREATE INDEX IF NOT EXISTS {DID_INDEX} ON srcnet.data_products"
-        f" USING gin (({did_sql()}) gin_trgm_ops)"
-    )
+# The first science artifact by id, as an aggregate: the rows are the same
+# as ``ORDER BY artifact_id LIMIT 1``, and an aggregate without GROUP BY is
+# provably one row, so a LEFT JOIN to it is one the planner can drop.
+ACCESS_JOIN = (
+    "LEFT JOIN LATERAL (\n"
+    "    SELECT (array_agg(art.access_url ORDER BY art.artifact_id))[1] AS access_url,\n"
+    "           (array_agg(art.access_format ORDER BY art.artifact_id))[1] AS access_format,\n"
+    "           (array_agg(art.access_estsize ORDER BY art.artifact_id))[1] AS access_estsize\n"
+    "    FROM srcnet.artifacts AS art\n"
+    "    WHERE art.project_id = p.project_id AND art.obs_id = p.obs_id\n"
+    "      AND art.sbd_id = p.sbd_id AND art.eb_id = p.eb_id\n"
+    "      AND art.product_id = p.product_id AND art.semantics = 'science'\n"
+    ") AS a ON true"
+)
+
+PRODUCT_KEY = "project_id, obs_id, sbd_id, eb_id, product_id"
 
 
-def view_sql(or_replace: bool = False) -> str:
-    did = did_sql("p")
-    selects = ",\n    ".join(
-        f"{column.expression if column.expression is not None else did} AS {column.name}"
-        for column in OBSCORE_COLUMNS
-    )
-    verb = "CREATE OR REPLACE VIEW" if or_replace else "CREATE VIEW"
+def _expression(column: ObsCoreColumn) -> str:
+    return column.expression if column.expression is not None else did_sql("p")
+
+
+def select_sql(products: str = "srcnet.data_products") -> str:
+    """The ObsCore rows of ``products`` — the data_products table, or a
+    trigger's transition table of just-written data_products rows — in REC
+    Table 6 column order. One text for the backfill and the triggers: the
+    relation holds what this select yields, and nothing else ever writes it.
+    """
+    selects = ",\n    ".join(f"{_expression(c)} AS {c.name}" for c in OBSCORE_COLUMNS)
     return (
-        f"{verb} ivoa.obscore AS\n"
         f"SELECT\n    {selects}\n"
-        "FROM srcnet.data_products AS p\n"
+        f"FROM {products} AS p\n"
         "JOIN srcnet.observations AS o\n"
         "  ON o.project_id = p.project_id AND o.obs_id = p.obs_id\n"
-        # The first science artifact by id, as an aggregate rather than
-        # ``ORDER BY artifact_id LIMIT 1``: the rows are the same, but an
-        # aggregate without GROUP BY is provably one row, and a LEFT JOIN
-        # to a provably-one-row subquery whose columns nobody reads is one
-        # the planner removes. With LIMIT it could not, and a query over the
-        # view that never touched access_* — a GROUP BY over the collection,
-        # say — still probed artifacts once per matching product.
-        "LEFT JOIN LATERAL (\n"
-        "    SELECT (array_agg(art.access_url ORDER BY art.artifact_id))[1] AS access_url,\n"
-        "           (array_agg(art.access_format ORDER BY art.artifact_id))[1]"
-        " AS access_format,\n"
-        "           (array_agg(art.access_estsize ORDER BY art.artifact_id))[1]"
-        " AS access_estsize\n"
-        "    FROM srcnet.artifacts AS art\n"
-        "    WHERE art.project_id = p.project_id AND art.obs_id = p.obs_id\n"
-        "      AND art.sbd_id = p.sbd_id AND art.eb_id = p.eb_id\n"
-        "      AND art.product_id = p.product_id AND art.semantics = 'science'\n"
-        ") AS a ON true"
+        f"{ACCESS_JOIN}"
     )
 
 
-# Postgres refuses CREATE OR REPLACE VIEW with invalid_table_definition when
-# the replacement's column list differs in name, type or order.
-_VIEW_SHAPE_CHANGED = "42P16"
+# Indexes on the relation, by name. The DID is the unique key (the upsert
+# target) and gets a trigram index too, so equality, a prefix and a component
+# in the middle (``LIKE '%<project>/%'``) are all index scans; the rest are
+# the ObsCore filter columns any client narrows by, and the two GiST indexes
+# the ADQL geometry functions translate to (``spoint(RADIANS(s_ra),
+# RADIANS(s_dec))`` is the exact expression a cone search becomes, and only an
+# index on that expression is considered).
+INDEXES: dict[str, str] = {
+    "obscore_did_key": "UNIQUE INDEX {name} ON {table} (obs_publisher_did)",
+    "obscore_did_trgm": "INDEX {name} ON {table} USING gin (obs_publisher_did gin_trgm_ops)",
+    "obscore_collection_idx": "INDEX {name} ON {table} (obs_collection)",
+    "obscore_type_calib_idx": "INDEX {name} ON {table} (dataproduct_type, calib_level)",
+    "obscore_calib_idx": "INDEX {name} ON {table} (calib_level)",
+    "obscore_time_idx": "INDEX {name} ON {table} (t_min, t_max)",
+    "obscore_target_idx": "INDEX {name} ON {table} (target_name)",
+    "obscore_spoint_gist": (
+        "INDEX {name} ON {table} USING gist (spoint(RADIANS(s_ra), RADIANS(s_dec)))"
+    ),
+    "obscore_s_region_geom_gist": "INDEX {name} ON {table} USING gist (s_region_geom)",
+}
+# needs pg_trgm, which a role that cannot CREATE EXTENSION may not have
+TRGM_INDEX = "obscore_did_trgm"
+# the leading column of each index, for TAP_SCHEMA's ``indexed`` flag
+INDEXED_COLUMNS = frozenset(
+    {"obs_publisher_did", "obs_collection", "dataproduct_type", "calib_level", "t_min",
+     "target_name", "s_ra", "s_dec", "s_region_geom"}
+)  # fmt: skip
+
+
+def index_sql(name: str, table: str = TABLE, suffix: str = "") -> str:
+    return "CREATE " + INDEXES[name].format(name=f"{name}{suffix}", table=table)
+
+
+def _set_clause(columns) -> str:
+    return ", ".join(
+        f"{c.name} = EXCLUDED.{c.name}" for c in columns if c.name != "obs_publisher_did"
+    )
+
+
+def _observation_columns() -> list[ObsCoreColumn]:
+    return [c for c in OBSCORE_COLUMNS if c.expression and re.search(r"\bo\.", c.expression)]
+
+
+def _access_columns() -> list[ObsCoreColumn]:
+    return [c for c in OBSCORE_COLUMNS if c.expression and re.search(r"\ba\.", c.expression)]
+
+
+def trigger_sql() -> list[str]:
+    """The functions and statement-level triggers that keep the relation
+    current, in the transaction that changes the source rows.
+
+    Statement-level with transition tables rather than row-level: one
+    ``INSERT ... SELECT`` per statement, so the JSON API's ``executemany``
+    and the dataset seeder's bulk loads pay one join per batch, not one per
+    row. Every path the ODP tables change by is covered without any code in
+    the ingest module knowing: a document upsert (INSERT and UPDATE on
+    data_products; artifacts arrive after their product, so the access
+    columns are filled by the artifacts trigger), an amendment (UPDATE on any
+    of the three), a document deletion (the FK cascade's DELETEs), and the
+    seeder's generated INSERTs. The transition tables are named the same in
+    every trigger so one function serves the three events.
+    """
+    did = did_sql("p")
+    key_tuple = f"({PRODUCT_KEY})"
+    upsert = (
+        f"INSERT INTO {TABLE}\n{select_sql('new_rows')}\n"
+        f"ON CONFLICT (obs_publisher_did) DO UPDATE SET {_set_clause(OBSCORE_COLUMNS)}"
+    )
+    products_fn = f"""CREATE OR REPLACE FUNCTION ivoa.obscore_data_products_changed()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    -- one statement per branch: a transition table only exists for the
+    -- events that declare it, and a statement naming an absent one fails
+    -- to parse even on a branch that is not taken
+    IF TG_OP = 'DELETE' THEN
+        DELETE FROM {TABLE} WHERE obs_publisher_did IN (SELECT {did} FROM old_rows AS p);
+    ELSIF TG_OP = 'UPDATE' THEN
+        -- re-keyed rows leave their old DID behind
+        DELETE FROM {TABLE} WHERE obs_publisher_did IN (SELECT {did} FROM old_rows AS p)
+            AND obs_publisher_did NOT IN (SELECT {did} FROM new_rows AS p);
+    END IF;
+    IF TG_OP <> 'DELETE' THEN
+        {upsert.replace(chr(10), chr(10) + "        ")};
+    END IF;
+    RETURN NULL;
+END $$"""
+    access_set = ", ".join(f"{c.name} = {c.expression}" for c in _access_columns())
+
+    def access_update(keys: str) -> str:
+        return (
+            f"UPDATE {TABLE} AS r SET {access_set}\n"
+            f"        FROM srcnet.data_products AS p\n"
+            f"        {ACCESS_JOIN.replace(chr(10), chr(10) + '        ')}\n"
+            f"        WHERE {key_tuple.replace('(', '(p.').replace(', ', ', p.')} IN ({keys})\n"
+            f"          AND r.obs_publisher_did = {did}"
+        )
+
+    new_keys = f"SELECT {PRODUCT_KEY} FROM new_rows"
+    old_keys = f"SELECT {PRODUCT_KEY} FROM old_rows"
+    artifacts_fn = f"""CREATE OR REPLACE FUNCTION ivoa.obscore_artifacts_changed()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    -- recompute the access columns of every product whose artifacts changed;
+    -- a product deleted in the same cascade simply matches nothing
+    IF TG_OP = 'INSERT' THEN
+        {access_update(new_keys)};
+    ELSIF TG_OP = 'DELETE' THEN
+        {access_update(old_keys)};
+    ELSE
+        {access_update(f"{new_keys} UNION {old_keys}")};
+    END IF;
+    RETURN NULL;
+END $$"""
+    obs_columns = _observation_columns()
+    obs_set = ", ".join(f"{c.name} = {c.expression}" for c in obs_columns)
+    sources = sorted({m for c in obs_columns for m in re.findall(r"\bo\.(\w+)", c.expression)})
+    new_values = ", ".join(f"o.{s}" for s in sources)
+    old_values = ", ".join(f"oo.{s}" for s in sources)
+    observations_fn = f"""CREATE OR REPLACE FUNCTION ivoa.obscore_observations_changed()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    -- a re-posted document updates every observation it carries; only one
+    -- whose published columns actually moved touches its products
+    UPDATE {TABLE} AS r SET {obs_set}
+        FROM new_rows AS o
+        JOIN old_rows AS oo ON oo.project_id = o.project_id AND oo.obs_id = o.obs_id
+        JOIN srcnet.data_products AS p ON p.project_id = o.project_id AND p.obs_id = o.obs_id
+        WHERE ({new_values}) IS DISTINCT FROM ({old_values})
+          AND r.obs_publisher_did = {did};
+    RETURN NULL;
+END $$"""
+    trigger = (
+        "CREATE OR REPLACE TRIGGER obscore_sync_{event} AFTER {event} ON srcnet.{table}"
+        " REFERENCING {tables} FOR EACH STATEMENT EXECUTE FUNCTION ivoa.obscore_{table}_changed()"
+    )
+    tables = {
+        "insert": "NEW TABLE AS new_rows",
+        "update": "OLD TABLE AS old_rows NEW TABLE AS new_rows",
+        "delete": "OLD TABLE AS old_rows",
+    }
+    return [
+        products_fn,
+        artifacts_fn,
+        observations_fn,
+        *(
+            trigger.format(event=e, table="data_products", tables=tables[e])
+            for e in ("insert", "update", "delete")
+        ),
+        *(
+            trigger.format(event=e, table="artifacts", tables=tables[e])
+            for e in ("insert", "update", "delete")
+        ),
+        trigger.format(event="update", table="observations", tables=tables["update"]),
+    ]
 
 
 def definition_comment() -> str:
-    """The view's comment, carrying a fingerprint of its own definition.
-
-    Postgres normalises a stored view definition, so ``pg_get_viewdef``
-    never compares equal to the SQL written here — a fingerprint of our own
-    is the only way to recognise "nothing changed" without issuing DDL. The
-    encoder and the index are fingerprinted with the view: all three are
-    built from the same DID expression, and a stale index is a wrong index
-    the planner would keep using.
-    """
-    definition = "\n".join((view_sql(), did_encode_sql(), did_index_sql()))
+    """The relation's comment, carrying a fingerprint of everything that
+    produces its rows: the select, the encoder, the triggers and the indexes.
+    A comment is read without a relation lock, so a restart that changed
+    nothing issues no DDL at all; a changed fingerprint rebuilds the relation
+    from scratch, and marks it as this service's to rebuild."""
+    definition = "\n".join(
+        (select_sql(), did_encode_sql(), *trigger_sql(), *(index_sql(n) for n in INDEXES))
+    )
     digest = hashlib.sha256(definition.encode()).hexdigest()[:16]
-    return f"ObsCore 1.1 over the ODP metadata (definition {digest})"
+    return f"{COMMENT_PREFIX} (definition {digest})"
 
 
-def _replace_view(conn, current_comment: str | None) -> None:
-    """Install ivoa.obscore, doing nothing at all when it is already current.
-
-    Measured on PostgreSQL 16: CREATE OR REPLACE VIEW takes the same
-    ACCESS EXCLUSIVE lock on the view as DROP + CREATE, so changing
-    statement is not by itself the fix. That lock is held until the
-    bootstrap transaction commits and the bootstrap runs on every pod start,
-    so one long-running ObsCore query plus a rolling deploy is enough to
-    queue every new query on ivoa.obscore behind a pod's DDL. Hence the
-    fingerprint: reading a comment takes no relation lock (and GRANT takes
-    none either), so a restart that is not a mapping change touches nothing.
-
-    When the definition did change, CREATE OR REPLACE VIEW is still the
-    better statement — it keeps the relation's OID, so blocked queries and
-    cached plans survive it, and it keeps the grants — and it is refused
-    (SQLSTATE 42P16) in exactly the case that needs the drop: a changed
-    column list. A failed statement aborts the transaction, so the attempt
-    runs inside a SAVEPOINT. The shape is not pre-checked against
-    information_schema because the view's column types come from the select
-    expressions rather than from anything declared in this module, and a
-    type change missed by such a check would abort the whole bootstrap
-    instead of recreating the view. The SQLSTATE is matched by code rather
-    than by exception class so this module keeps reaching the database only
-    through egernia_core's connection.
-    """
-    sql = view_sql()
-    comment = definition_comment()
-    if current_comment == comment:
+def _create_index(conn, name: str, table: str = TABLE, suffix: str = "") -> None:
+    """One index; the trigram one is optional because pg_trgm is (a trusted
+    extension the database owner can install without being superuser, but a
+    role that cannot loses the index, not the bootstrap)."""
+    if name != TRGM_INDEX:
+        conn.execute(index_sql(name, table, suffix))
         return
-    # the view calls the encoder, so the encoder comes first; the index is
-    # over the same expression, so a changed definition drops it here and
-    # _ensure_did_index rebuilds it
-    conn.execute(did_encode_sql())
-    conn.execute(f"DROP INDEX IF EXISTS srcnet.{DID_INDEX}")
-    conn.execute("SAVEPOINT obscore_view")
-    try:
-        conn.execute(view_sql(or_replace=True))
-    except Exception as exc:
-        if getattr(exc, "sqlstate", None) != _VIEW_SHAPE_CHANGED:
-            raise
-        conn.execute("ROLLBACK TO SAVEPOINT obscore_view")
-        log.info("ivoa.obscore column list changed; recreating the view (%s)", exc)
-        conn.execute("DROP VIEW IF EXISTS ivoa.obscore")
-        conn.execute(sql)
-    else:
-        conn.execute("RELEASE SAVEPOINT obscore_view")
-    # COMMENT ON is DDL: Postgres plans no parameters for it, so the
-    # fingerprint has to arrive already quoted rather than bound. Quoting is
-    # left to the server so the escaping matches whatever the comment holds.
-    literal = conn.execute("SELECT quote_literal(%s)", (comment,)).fetchone()[0]
-    conn.execute(f"COMMENT ON VIEW ivoa.obscore IS {literal}")
-
-
-def _ensure_did_index(conn) -> None:
-    """Build the DID index when it is missing, and only then.
-
-    Checked in the catalogue rather than left to IF NOT EXISTS: CREATE INDEX
-    locks the table before it discovers the index is already there, and
-    this runs on every pod start. pg_trgm is a trusted extension, so the
-    database owner can install it without being superuser; a role that
-    cannot leaves the view without its index rather than the service
-    without its view, and says so.
-    """
-    if conn.execute("SELECT to_regclass(%s)", (f"srcnet.{DID_INDEX}",)).fetchone()[0]:
-        return
-    conn.execute("SAVEPOINT obscore_did_index")
+    conn.execute("SAVEPOINT obscore_trgm")
     try:
         conn.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
-        conn.execute(did_index_sql())
-        # an expression index carries its own statistics, and nothing else
-        # collects them until autovacuum sees enough churn; a lookup planned
-        # before then is planned against a default selectivity
-        conn.execute("ANALYZE srcnet.data_products")
+        conn.execute(index_sql(name, table, suffix))
     except Exception as exc:
-        conn.execute("ROLLBACK TO SAVEPOINT obscore_did_index")
+        conn.execute("ROLLBACK TO SAVEPOINT obscore_trgm")
         log.warning(
-            "ivoa.obscore publisher-DID index not created (%s); lookups by"
-            " obs_publisher_did will evaluate the DID for every product",
+            "ivoa.obscore publisher-DID trigram index not created (%s); LIKE lookups by"
+            " obs_publisher_did will scan the relation",
             exc,
         )
     else:
-        conn.execute("RELEASE SAVEPOINT obscore_did_index")
+        conn.execute("RELEASE SAVEPOINT obscore_trgm")
+
+
+def _build(conn, existing_relkind: str | None) -> None:
+    """Build the relation beside the live one and swap it in by rename.
+
+    Everything happens in the bootstrap transaction, so ordering is what
+    keeps a rolling deployment serving: the source tables are locked in SHARE
+    mode (ingest waits, queries do not) so no row written during the backfill
+    is missed; the new table is filled and indexed under a scratch name while
+    queries keep reading the old view or table; only the final DROP and
+    RENAME take the exclusive lock on ``ivoa.obscore``, and that is released
+    at commit a few statements later. The old relation's indexes keep their
+    names until then, so the new ones are built under a suffix and renamed
+    after the swap.
+    """
+    conn.execute(did_encode_sql())
+    conn.execute(
+        "LOCK TABLE srcnet.data_products, srcnet.observations, srcnet.artifacts IN SHARE MODE"
+    )
+    conn.execute(f"DROP TABLE IF EXISTS {BUILD}")
+    conn.execute(f"CREATE TABLE {BUILD} AS\n{select_sql()}")
+    for name in INDEXES:
+        _create_index(conn, name, BUILD, "_build")
+    conn.execute(f"ANALYZE {BUILD}")
+    for statement in trigger_sql():
+        conn.execute(statement)
+    if existing_relkind == "v":
+        conn.execute(f"DROP VIEW {TABLE}")
+    elif existing_relkind is not None:
+        conn.execute(f"DROP TABLE {TABLE}")
+    conn.execute(f"ALTER TABLE {BUILD} RENAME TO {TABLE.split('.')[1]}")
+    for name in INDEXES:
+        if conn.execute("SELECT to_regclass(%s)", (f"ivoa.{name}_build",)).fetchone()[0]:
+            conn.execute(f"ALTER INDEX ivoa.{name}_build RENAME TO {name}")
+    # the expression index the view needed on data_products: the DID is a
+    # stored, indexed column now
+    conn.execute("DROP INDEX IF EXISTS srcnet.data_products_obscore_did_trgm")
+    # COMMENT ON is DDL: Postgres plans no parameters for it, so the
+    # fingerprint has to arrive already quoted rather than bound
+    literal = conn.execute("SELECT quote_literal(%s)", (definition_comment(),)).fetchone()[0]
+    conn.execute(f"COMMENT ON TABLE {TABLE} IS {literal}")
+
+
+def _ensure_indexes(conn) -> None:
+    """Put back any index that is missing on a current relation — the seeder
+    sets the GiST ones aside for a bulk load, and pg_trgm may have been
+    unavailable at an earlier bootstrap. Checked in the catalogue rather than
+    left to IF NOT EXISTS, which locks the table before it looks."""
+    missing = [
+        name
+        for name in INDEXES
+        if not conn.execute("SELECT to_regclass(%s)", (f"ivoa.{name}",)).fetchone()[0]
+    ]
+    for name in missing:
+        _create_index(conn, name)
+    if missing:
+        conn.execute(f"ANALYZE {TABLE}")
 
 
 def ensure_obscore(conn) -> None:
-    """Create and register the ivoa.obscore view (odp post_ensure hook).
-
-    Replace-in-place where possible and drop-and-create where not, so a
-    mapping change migrates forward and an unchanged one is left alone (see
-    :func:`_replace_view`); the caller holds the bootstrap's advisory
-    transaction lock, so concurrent pods serialise here like they do on the
-    rest of the schema.
-    """
+    """Create or migrate the ivoa.obscore relation and register it (odp
+    post_ensure hook). The caller holds the bootstrap's advisory transaction
+    lock, so concurrent pods serialise here like they do on the rest of the
+    schema."""
     existing = conn.execute(
         "SELECT c.relkind, obj_description(c.oid, 'pg_class') FROM pg_class c"
         " JOIN pg_namespace n ON n.oid = c.relnamespace"
         " WHERE n.nspname = 'ivoa' AND c.relname = 'obscore'"
     ).fetchone()
-    if existing and existing[0] != "v":
-        # A deployment that already has an ivoa.obscore *table* (its own
-        # archive, or a test harness's synthetic one) is publishing its
+    relkind, comment = existing if existing else (None, None)
+    ours = relkind == "v" or (relkind == "r" and (comment or "").startswith(COMMENT_PREFIX))
+    if existing and not ours:
+        # A deployment that already has an ivoa.obscore of its own (its own
+        # archive, or a test harness's synthetic table) is publishing its
         # own ObsCore: replacing it would destroy data the service does not
         # own, and crashing on it would take the whole bootstrap down.
         log.warning(
-            "ivoa.obscore already exists and is not a view; leaving it in"
-            " place and skipping the ODP-derived view"
+            "ivoa.obscore already exists and is not this service's; leaving it in"
+            " place and skipping the ODP-derived relation"
         )
         return
     conn.execute("CREATE SCHEMA IF NOT EXISTS ivoa")
-    _replace_view(conn, existing[1] if existing else None)
-    _ensure_did_index(conn)
+    if comment != definition_comment():
+        log.info("building ivoa.obscore from the ODP tables")
+        _build(conn, relkind)
+    else:
+        _ensure_indexes(conn)
     conn.execute(f"GRANT USAGE ON SCHEMA ivoa TO {settings.query_role}")
-    conn.execute(f"GRANT SELECT ON ivoa.obscore TO {settings.query_role}")
+    conn.execute(f"GRANT SELECT ON {TABLE} TO {settings.query_role}")
     conn.execute(
         "INSERT INTO tap_schema.schemas (schema_name, description, schema_index)"
         " VALUES ('ivoa', 'IVOA standard tables', 50)"
@@ -667,10 +803,11 @@ def ensure_obscore(conn) -> None:
     conn.execute(
         "INSERT INTO tap_schema.tables (schema_name, table_name, table_type, utype,"
         " description, table_index)"
-        " VALUES ('ivoa', 'ivoa.obscore', 'view', %s,"
+        " VALUES ('ivoa', 'ivoa.obscore', 'table', %s,"
         " 'ObsCore 1.1: one row per data product of the ingested ODP metadata', 1)"
         " ON CONFLICT (table_name) DO UPDATE"
-        " SET utype = EXCLUDED.utype, description = EXCLUDED.description",
+        " SET table_type = EXCLUDED.table_type, utype = EXCLUDED.utype,"
+        " description = EXCLUDED.description",
         (DATAMODEL_IVOID,),
     )
     for index, column in enumerate(OBSCORE_COLUMNS, start=1):
@@ -678,13 +815,13 @@ def ensure_obscore(conn) -> None:
             "INSERT INTO tap_schema.columns (table_name, column_name, datatype,"
             " arraysize, xtype, unit, ucd, utype, description, indexed, principal,"
             " std, column_index)"
-            " VALUES ('ivoa.obscore', %s, %s, %s, %s, %s, %s, %s, %s, 0, %s, %s, %s)"
+            " VALUES ('ivoa.obscore', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
             " ON CONFLICT (table_name, column_name) DO UPDATE SET"
             " datatype = EXCLUDED.datatype, arraysize = EXCLUDED.arraysize,"
             " xtype = EXCLUDED.xtype, unit = EXCLUDED.unit, ucd = EXCLUDED.ucd,"
             " utype = EXCLUDED.utype, description = EXCLUDED.description,"
-            " principal = EXCLUDED.principal, std = EXCLUDED.std,"
-            " column_index = EXCLUDED.column_index",
+            " indexed = EXCLUDED.indexed, principal = EXCLUDED.principal,"
+            " std = EXCLUDED.std, column_index = EXCLUDED.column_index",
             (
                 column.name,
                 column.datatype,
@@ -694,6 +831,7 @@ def ensure_obscore(conn) -> None:
                 column.ucd,
                 column.utype,
                 column.description,
+                int(column.name in INDEXED_COLUMNS),
                 column.principal,
                 column.std,
                 index,

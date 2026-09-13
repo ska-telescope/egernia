@@ -1,0 +1,71 @@
+# The supplementary block's scenario. NOT part of the pre-registered
+# three-server scaling grid (tag tap-compare-scaling-threeway-prereg-v1) and
+# deliberately in its own directory so that grid's frozen files are never
+# edited: the plan for this block was written to the run directory at
+# 2026-09-13T06:40Z, while tier 16 was still measuring and before any tier-24
+# rung existed.
+#
+# Why it exists: the 60% generator guard voided 13 rungs of the main run, all
+# argus, all where the client's own CPU was the limit — Q11 (3.23 MiB per
+# response) at c=8 in both formats at tiers 16 and 24, and one Q01 repetition
+# at c=32 and tier 24. Consuming argus's bodies costs the client 4.50 ms per
+# MiB against egernia's 1.07, so the generator, not the server, was the
+# bottleneck there.
+#
+# What changes, and only this: twelve generator processes instead of six. The
+# guard judges the *busiest single process* against one core, and the runner
+# shards the held concurrency across min(processes, concurrency) of them, so
+# twelve halves the busiest share at c=32 (from 6/32 to 3/32) and at c=8 gives
+# one connection each. The worst peak observed was 0.88; halving the share puts
+# it near 0.44.
+#
+# What that costs: a different generator shape is a different measurement.
+# These cells may be compared with each other — all three servers are measured
+# here — but NOT with tiers 8 and 16, and they do not repair the
+# under-reporting in the main run's rungs that passed under six processes.
+#
+#   CONFIG_DIR=benchmarks/tap-compare/scaling-three-way-supplementary \
+#   SCENARIO=scaling3-supp TIERS=24 CLASSES="Q01 Q11" \
+#       benchmarks/tap-compare/scaling-three-way/run.sh
+
+corpus:
+  seed: 424242
+  combinations: 400
+  projects: 3906
+
+mix:
+  Q01: 1
+  Q02: 3
+  Q03: 3
+  Q04: 2
+  Q05: 5
+  Q06: 2
+  Q07: 2
+  Q10: 1
+
+scenarios:
+  # The pre-registered scaling3 grid with twelve generator processes instead
+  # of six. Everything else — ladder, windows, repetitions, formats, maxrec —
+  # is byte-identical, so the only difference from the voided cells is the
+  # client's own parallelism.
+  scaling3-supp:
+    ladder: [8, 32]
+    warmup_seconds: 20
+    measure_seconds: 60
+    repetitions: 3
+    response_formats: [votable, csv]
+    maxrec: 100000
+    generator_processes: 12
+    per_class: true
+
+  warm:
+    ladder: [8]
+    warmup_seconds: 0
+    measure_seconds: 45
+    repetitions: 1
+    response_formats: [csv]
+    maxrec: 100000
+    generator_processes: 12
+
+guards:
+  generator_cpu_max_fraction: 0.6
