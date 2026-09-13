@@ -1,0 +1,71 @@
+{
+  "corpus_sha256": "9f9da00f45f129bca6af68083a08a1a9e340eded89c29ad17d89eefe6cd7ff1b",
+  "git": {
+    "branch": "bench/05-scaling-protocol",
+    "describe": "tap-compare-scaling-prereg-v1",
+    "dirty": false,
+    "sha": "5f1458313f1a3c468d14b1e638a636bb8f63ec6a"
+  },
+  "host": {
+    "cpu_count": 30,
+    "machine": "x86_64",
+    "platform": "Linux-6.8.0-134-generic-x86_64-with-glibc2.39",
+    "processor": "x86_64",
+    "python": "3.14.6"
+  },
+  "recorded_at": 1788593955.1620867,
+  "resumed": [
+    {
+      "at": 1788612165.7170503,
+      "dirty": false,
+      "sha": "5c8732f36c396282b29bdc786c559c015aa2e75d"
+    },
+    {
+      "at": 1788631057.549952,
+      "dirty": false,
+      "sha": "6acbcddca7071f95a9484402bf288962257cd8cb"
+    }
+  ],
+  "scenario": {
+    "scaling": {
+      "generator_processes": 6,
+      "ladder": [
+        8,
+        32,
+        64
+      ],
+      "maxrec": 100000,
+      "measure_seconds": 60,
+      "per_class": true,
+      "repetitions": 3,
+      "response_formats": [
+        "votable",
+        "csv"
+      ],
+      "warmup_seconds": 20
+    }
+  },
+  "seed": 424242,
+  "target": {
+    "dachs-local": {
+      "base_url": "http://localhost:8081/tap",
+      "name": "dachs-local",
+      "notes": "GAVO DaCHS from the Debian gavodachs2-server package (benchmarks/tap-compare/docker-compose.dachs.yml), serving the exported ObsCore corpus via //obscore#publishObscoreLike.",
+      "portable_only": true,
+      "server": "dachs"
+    },
+    "egernia-local": {
+      "base_url": "http://localhost:8080/tap",
+      "name": "egernia-local",
+      "notes": "The repository's own docker-compose.yml stack, seeded with `uv run --group dataset python -m egernia_dataset.seed`.",
+      "portable_only": true,
+      "server": "egernia"
+    }
+  },
+  "tier_mode": "tiered",
+  "tiers": [
+    "8",
+    "16",
+    "24"
+  ]
+}

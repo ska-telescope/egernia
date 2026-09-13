@@ -1,0 +1,184 @@
+This is STILTS taplint, 3.5-6/6df87fe94 (2026-08-21)
+Timestamp: 2026-09-06 14:53:51 UTC
+Static report types: ERROR(173), WARNING(77), INFO(32), SUMMARY(13), FAILURE(25)
+
+Section TMV: Validate table metadata against XML schema
+I-TMV-VURL-1 Validating http://localhost/argus/tables as tableset (http://www.ivoa.net/xml/VODataService/v1.1)
+S-TMV-VALI-1 SAX report: warnings 0, errors 0, fatal 0
+
+Section TME: Check content of tables metadata from /tables
+I-TME-CURL-1 Reading capability metadata from http://localhost/argus/capabilities
+I-TME-TURL-1 Reading table metadata from http://localhost/argus/tables?detail=max
+S-TME-SUMM-1 Schemas: 3, Tables: 16, Columns: 376, Foreign Keys: 15
+S-TME-FLGS-1 Standard column flags: indexed: 89, primary: 0, nullable: 0
+S-TME-FLGO-1 Other column flags: none
+
+Section TMS: Check content of tables metadata from TAP_SCHEMA
+I-TMS-TAPV-1 Validating for TAP version V1.1
+I-TMS-QSUB-1 Submitting query: SELECT COUNT(*) AS nr FROM TAP_SCHEMA.schemas
+I-TMS-QGET-1 Query GET URL: http://localhost/argus/sync?LANG=ADQL&QUERY=SELECT+COUNT%28*%29+AS+nr+FROM+TAP_SCHEMA.schemas
+I-TMS-QSUB-2 Submitting query: SELECT COUNT(*) AS nr FROM TAP_SCHEMA.tables
+I-TMS-QGET-2 Query GET URL: http://localhost/argus/sync?LANG=ADQL&QUERY=SELECT+COUNT%28*%29+AS+nr+FROM+TAP_SCHEMA.tables
+I-TMS-QSUB-3 Submitting query: SELECT COUNT(*) AS nr FROM TAP_SCHEMA.columns
+I-TMS-QGET-3 Query GET URL: http://localhost/argus/sync?LANG=ADQL&QUERY=SELECT+COUNT%28*%29+AS+nr+FROM+TAP_SCHEMA.columns
+I-TMS-QSUB-4 Submitting query: SELECT COUNT(*) AS nr FROM TAP_SCHEMA.keys
+I-TMS-QGET-4 Query GET URL: http://localhost/argus/sync?LANG=ADQL&QUERY=SELECT+COUNT%28*%29+AS+nr+FROM+TAP_SCHEMA.keys
+I-TMS-QSUB-5 Submitting query: SELECT COUNT(*) AS nr FROM TAP_SCHEMA.key_columns
+I-TMS-QGET-5 Query GET URL: http://localhost/argus/sync?LANG=ADQL&QUERY=SELECT+COUNT%28*%29+AS+nr+FROM+TAP_SCHEMA.key_columns
+I-TMS-QSUB-6 Submitting query: SELECT principal, indexed, std, "size" FROM TAP_SCHEMA.columns
+I-TMS-QGET-6 Query GET URL: http://localhost/argus/sync?LANG=ADQL&QUERY=SELECT+principal%2C+indexed%2C+std%2C+%22size%22+FROM+TAP_SCHEMA.columns&MAXREC=386
+I-TMS-QSUB-7 Submitting query: SELECT TOP 1 * FROM TAP_SCHEMA.columns
+I-TMS-QGET-7 Query GET URL: http://localhost/argus/sync?LANG=ADQL&QUERY=SELECT+TOP+1+*+FROM+TAP_SCHEMA.columns&MAXREC=1
+I-TMS-QSUB-8 Submitting query: SELECT table_name, column_name, utype, ucd, unit, description, datatype, arraysize, xtype, principal, indexed, std, column_index FROM TAP_SCHEMA.columns
+I-TMS-QGET-8 Query GET URL: http://localhost/argus/sync?LANG=ADQL&QUERY=SELECT+table_name%2C+column_name%2C+utype%2C+ucd%2C+unit%2C+description%2C+datatype%2C+arraysize%2C+xtype%2C+principal%2C+indexed%2C+std%2C+column_index+FROM+TAP_SCHEMA.columns&MAXREC=386
+I-TMS-QSUB-9 Submitting query: SELECT from_column, target_column, key_id FROM TAP_SCHEMA.key_columns
+I-TMS-QGET-9 Query GET URL: http://localhost/argus/sync?LANG=ADQL&QUERY=SELECT+from_column%2C+target_column%2C+key_id+FROM+TAP_SCHEMA.key_columns&MAXREC=386
+S-TMS-SUMM-1 Schemas: 3, Tables: 16, Columns: 376, Foreign Keys: 15
+S-TMS-FLGS-1 Standard column flags: indexed: 89, principal: 273, std: 118
+S-TMS-QNUM-1 Successful/submitted TAP queries: 31/31
+S-TMS-QTIM-1 Average successful query time: 0.03s
+I-TMS-QSUB-x (22 more)
+I-TMS-QGET-x (22 more)
+
+Section TMC: Compare table metadata from /tables and TAP_SCHEMA
+
+Section UUC: Check column units and UCDs are legal
+I-UUC-UCDV-1 UCD validation details: Ucidy version 1.2, UCD words version EN-UCD1+-1.4, UCD deprecated words version EN-UCD1+-1.4
+
+Section CPV: Validate capabilities against XML schema
+I-CPV-VURL-1 Validating http://localhost/argus/capabilities as capabilities (http://www.ivoa.net/xml/VOSICapabilities/v1.0)
+S-CPV-VALI-1 SAX report: warnings 0, errors 0, fatal 0
+
+Section CAP: Check TAP and TAPRegExt content of capabilities document
+I-CAP-SVRI-1 HTTP server header "Server: OpenCADC/cadc-rest + cadc-vosi-1.4"
+
+Section AVV: Validate availability against XML schema
+I-AVV-VURL-1 Validating http://localhost/argus/availability as availability (http://www.ivoa.net/xml/VOSIAvailability/v1.0)
+S-AVV-VALI-1 SAX report: warnings 0, errors 0, fatal 0
+
+Section QGE: Make ADQL queries in sync GET mode
+I-QGE-SCHM-1 Using standard TAP_SCHEMA tables for metadata
+I-QGE-QSUB-1 Submitting query: SELECT TOP 10 uri FROM caom2.Artifact
+I-QGE-QGET-1 Query GET URL: http://localhost/argus/sync?LANG=ADQL&QUERY=SELECT+TOP+10+uri+FROM+caom2.Artifact
+W-QGE-YXDL-1 (l.8, c.115): Non-DALI 1.1 xtype value "uri" (FIELD uri)
+I-QGE-QSUB-2 Submitting query: SELECT TOP 10 uri FROM caom2.Artifact
+I-QGE-QGET-2 Query GET URL: http://localhost/argus/sync?LANG=ADQL&QUERY=SELECT+TOP+10+uri+FROM+caom2.Artifact&DUMMY=ignore-me
+W-QGE-YXDL-2 (l.8, c.115): Non-DALI 1.1 xtype value "uri" (FIELD uri)
+I-QGE-QSUB-3 Submitting query: SELECT TOP 1 uri FROM caom2.Artifact
+I-QGE-QGET-3 Query GET URL: http://localhost/argus/sync?LANG=ADQL-2.0&QUERY=SELECT+TOP+1+uri+FROM+caom2.Artifact
+W-QGE-YXDL-3 (l.8, c.115): Non-DALI 1.1 xtype value "uri" (FIELD uri)
+I-QGE-QSUB-4 Submitting query: SELECT TOP 1 uri FROM caom2.Artifact
+I-QGE-QGET-4 Query GET URL: http://localhost/argus/sync?LANG=ADQL&QUERY=SELECT+TOP+1+uri+FROM+caom2.Artifact
+W-QGE-YXDL-4 (l.8, c.115): Non-DALI 1.1 xtype value "uri" (FIELD uri)
+I-QGE-QSUB-5 Submitting query: SELECT TOP 8 dataRelease, energy_bandpassName AS taplint_c_2, c.instrument_name, collection AS taplint_c_4, imageFormat, c.time_bounds_cval2 AS taplint_c_6, time_bounds_center, energy_bounds_cval1 AS taplint_c_8, c.position_scale, position_naxes AS taplint_c_10, position_center_ra FROM caom2.SIAv1 AS c
+I-QGE-QGET-5 Query GET URL: http://localhost/argus/sync?LANG=ADQL&QUERY=SELECT+TOP+8+dataRelease%2C+energy_bandpassName+AS+taplint_c_2%2C+c.instrument_name%2C+collection+AS+taplint_c_4%2C+imageFormat%2C+c.time_bounds_cval2+AS+taplint_c_6%2C+time_bounds_center%2C+energy_bounds_cval1+AS+taplint_c_8%2C+c.position_scale%2C+position_naxes+AS+taplint_c_10%2C+position_center_ra++FROM+caom2.SIAv1+AS+c
+I-QGE-QSUB-6 Submitting query: SELECT obs_publisher_did FROM ivoa.ObsCore
+I-QGE-QGET-6 Query GET URL: http://localhost/argus/sync?LANG=ADQL&QUERY=SELECT+obs_publisher_did+FROM+ivoa.ObsCore&MAXREC=0
+W-QGE-YXDL-5 (l.8, c.164): Non-DALI 1.1 xtype value "uri" (FIELD obs_publisher_did)
+I-QGE-DUFF-1 Submitting query expected to fail (bad ADQL): DUFF QUERY
+I-QGE-QGET-7 Query GET URL: http://localhost/argus/sync?LANG=ADQL&QUERY=DUFF+QUERY
+I-QGE-DUFF-2 Submitting query expected to fail (unknown query language): SELECT TOP 1 * FROM TAP_SCHEMA.tables
+I-QGE-QGET-8 Query GET URL: http://localhost/argus/sync?LANG=OOBLECK&QUERY=SELECT+TOP+1+*+FROM+TAP_SCHEMA.tables
+S-QGE-QNUM-1 Successful/submitted TAP queries: 6/6
+S-QGE-QTIM-1 Average successful query time: 0.017s
+
+Section QPO: Make ADQL queries in sync POST mode
+I-QPO-QSUB-1 Submitting query: SELECT TOP 10 uri FROM caom2.Artifact
+W-QPO-YXDL-1 (l.8, c.115): Non-DALI 1.1 xtype value "uri" (FIELD uri)
+I-QPO-QSUB-2 Submitting query: SELECT TOP 10 uri FROM caom2.Artifact
+W-QPO-YXDL-2 (l.8, c.115): Non-DALI 1.1 xtype value "uri" (FIELD uri)
+I-QPO-QSUB-3 Submitting query: SELECT TOP 8 dataRelease, energy_bandpassName AS taplint_c_2, c.instrument_name, collection AS taplint_c_4, imageFormat, c.time_bounds_cval2 AS taplint_c_6, time_bounds_center, energy_bounds_cval1 AS taplint_c_8, c.position_scale, position_naxes AS taplint_c_10, position_center_ra FROM caom2.SIAv1 AS c
+I-QPO-QSUB-4 Submitting query: SELECT obs_publisher_did FROM ivoa.ObsCore
+W-QPO-YXDL-3 (l.8, c.164): Non-DALI 1.1 xtype value "uri" (FIELD obs_publisher_did)
+I-QPO-DUFF-1 Submitting query expected to fail (bad ADQL): DUFF QUERY
+I-QPO-DUFF-2 Submitting query expected to fail (unknown query language): SELECT TOP 1 * FROM TAP_SCHEMA.tables
+S-QPO-QNUM-1 Successful/submitted TAP queries: 4/4
+S-QPO-QTIM-1 Average successful query time: 0.02s
+
+Section QAS: Make ADQL queries in async mode
+I-QAS-QSUB-1 Submitting query: SELECT TOP 10 uri FROM caom2.Artifact
+I-QAS-QJOB-1 Submitted query at http://localhost/argus/async/ll0q4y8qey0nacf9
+W-QAS-YXDL-1 (l.8, c.115): Non-DALI 1.1 xtype value "uri" (FIELD uri)
+I-QAS-QSUB-2 Submitting query: SELECT TOP 10 uri FROM caom2.Artifact
+I-QAS-QJOB-2 Submitted query at http://localhost/argus/async/i05iz76f2ukc3koo
+W-QAS-YXDL-2 (l.8, c.115): Non-DALI 1.1 xtype value "uri" (FIELD uri)
+I-QAS-QSUB-3 Submitting query: SELECT TOP 8 dataRelease, energy_bandpassName AS taplint_c_2, c.instrument_name, collection AS taplint_c_4, imageFormat, c.time_bounds_cval2 AS taplint_c_6, time_bounds_center, energy_bounds_cval1 AS taplint_c_8, c.position_scale, position_naxes AS taplint_c_10, position_center_ra FROM caom2.SIAv1 AS c
+I-QAS-QJOB-3 Submitted query at http://localhost/argus/async/lv8hgtf0qz8kvdj9
+I-QAS-QSUB-4 Submitting query: SELECT obs_publisher_did FROM ivoa.ObsCore
+I-QAS-QJOB-4 Submitted query at http://localhost/argus/async/fwmx15v5ifve0qt0
+W-QAS-YXDL-3 (l.8, c.164): Non-DALI 1.1 xtype value "uri" (FIELD obs_publisher_did)
+I-QAS-DUFF-1 Submitting query expected to fail (bad ADQL): DUFF QUERY
+I-QAS-QJOB-5 Submitted query at http://localhost/argus/async/f7o6sjkribtlc763
+I-QAS-DUFF-2 Submitting query expected to fail (unknown query language): SELECT TOP 1 * FROM TAP_SCHEMA.tables
+I-QAS-QJOB-6 Submitted query at http://localhost/argus/async/z05twbj9qttefhvy
+S-QAS-QNUM-1 Successful/submitted TAP queries: 4/4
+S-QAS-QTIM-1 Average successful query time: 1.0s
+
+Section UWS: Test asynchronous UWS/TAP behaviour
+I-UWS-CJOB-1 Created new job http://localhost/argus/async/hu17yyd3vmoima3a
+I-UWS-POPA-1 POSTed runId=TAPLINT-002 to http://localhost/argus/async/hu17yyd3vmoima3a/parameters (303)
+I-UWS-POPA-2 POSTed PHASE=ABORT to http://localhost/argus/async/hu17yyd3vmoima3a/phase (303)
+I-UWS-POPA-3 POSTed ACTION=DELETE to http://localhost/argus/async/hu17yyd3vmoima3a (303)
+I-UWS-CJOB-2 Created new job http://localhost/argus/async/s51h6p3q8ktfnezd
+I-UWS-CJOB-3 Created new job http://localhost/argus/async/jz8bb9yor11e4o8k
+I-UWS-VUWS-1 UWS job document explicitly V1.1
+I-UWS-POPA-4 POSTed PHASE=RUN to http://localhost/argus/async/jz8bb9yor11e4o8k/phase (303)
+
+Section MDQ: Check table query result columns against declared metadata
+I-MDQ-TMAX-1 Testing only 5/16 tables
+I-MDQ-QSUB-1 Submitting query: SELECT TOP 1 * FROM caom2.Artifact
+I-MDQ-QSUB-2 Submitting query: SELECT TOP 1 * FROM caom2.Chunk
+I-MDQ-QSUB-3 Submitting query: SELECT TOP 1 * FROM caom2.HarvestSkipURI
+I-MDQ-QSUB-4 Submitting query: SELECT TOP 1 * FROM caom2.HarvestState
+I-MDQ-QSUB-5 Submitting query: SELECT TOP 1 * FROM caom2.Observation
+S-MDQ-QNUM-1 Successful/submitted TAP queries: 5/5
+S-MDQ-QTIM-1 Average successful query time: 0.02s
+
+Section OBS: Test implementation of ObsCore Data Model
+I-OBS-DMID-1 Checking against ObsCore DM 1.1
+I-OBS-QSUB-1 Submitting query: SELECT TOP 1 obs_publisher_did FROM ivoa.ObsCore WHERE obs_publisher_did IS NULL
+I-OBS-QGET-1 Query GET URL: http://localhost/argus/sync?LANG=ADQL&QUERY=SELECT+TOP+1+obs_publisher_did+FROM+ivoa.ObsCore+WHERE+obs_publisher_did+IS+NULL
+W-OBS-YXDL-1 (l.8, c.164): Non-DALI 1.1 xtype value "uri" (FIELD obs_publisher_did)
+I-OBS-QSUB-2 Submitting query: SELECT TOP 1 obs_collection FROM ivoa.ObsCore WHERE obs_collection IS NULL
+I-OBS-QGET-2 Query GET URL: http://localhost/argus/sync?LANG=ADQL&QUERY=SELECT+TOP+1+obs_collection+FROM+ivoa.ObsCore+WHERE+obs_collection+IS+NULL
+I-OBS-QSUB-3 Submitting query: SELECT TOP 1 obs_id FROM ivoa.ObsCore WHERE obs_id IS NULL
+I-OBS-QGET-3 Query GET URL: http://localhost/argus/sync?LANG=ADQL&QUERY=SELECT+TOP+1+obs_id+FROM+ivoa.ObsCore+WHERE+obs_id+IS+NULL
+I-OBS-QSUB-4 Submitting query: SELECT DISTINCT TOP 4 dataproduct_type FROM ivoa.ObsCore WHERE dataproduct_type NOT IN ('image', 'cube', 'spectrum', 'sed', 'timeseries', 'visibility', 'event', 'measurements') AND dataproduct_type IS NOT NULL
+I-OBS-QGET-4 Query GET URL: http://localhost/argus/sync?LANG=ADQL&QUERY=SELECT+DISTINCT+TOP+4+dataproduct_type+FROM+ivoa.ObsCore+WHERE+dataproduct_type+NOT+IN+%28%27image%27%2C+%27cube%27%2C+%27spectrum%27%2C+%27sed%27%2C+%27timeseries%27%2C+%27visibility%27%2C+%27event%27%2C+%27measurements%27%29+AND+dataproduct_type+IS+NOT+NULL
+I-OBS-QSUB-5 Submitting query: SELECT TOP 1 calib_level FROM ivoa.ObsCore WHERE calib_level IS NULL
+I-OBS-QGET-5 Query GET URL: http://localhost/argus/sync?LANG=ADQL&QUERY=SELECT+TOP+1+calib_level+FROM+ivoa.ObsCore+WHERE+calib_level+IS+NULL
+I-OBS-QSUB-6 Submitting query: SELECT TOP 1 calib_level FROM ivoa.ObsCore WHERE calib_level NOT BETWEEN 0 AND 4
+I-OBS-QGET-6 Query GET URL: http://localhost/argus/sync?LANG=ADQL&QUERY=SELECT+TOP+1+calib_level+FROM+ivoa.ObsCore+WHERE+calib_level+NOT+BETWEEN+0+AND+4
+S-OBS-COLS-1 ivoa.ObsCore columns: 30/30 required, 2/30 optional, 1 custom
+S-OBS-QNUM-1 Successful/submitted TAP queries: 6/6
+S-OBS-QTIM-1 Average successful query time: 0.16s
+
+Section LOC: Test implementation of ObsLocTAP Data Model
+
+Section UPL: Make queries with table uploads
+I-UPL-QSUB-1 Submitting query: SELECT * FROM TAP_UPLOAD.t1 ORDER BY d_int ASC
+I-UPL-QJOB-1 Submitted query at http://localhost/argus/async/y5ky6ivvj2h8u99y
+E-UPL-QERR-1 TAP query failed [Service error: "failed to read uploaded table UploadTable[t1,http://localhost/argus/results/upload_t1-q89jbug6aek87t3a] Connection refused"]
+I-UPL-QSUB-2 Submitting query: SELECT * FROM TAP_UPLOAD.t1 ORDER BY d_int ASC
+I-UPL-QJOB-2 Submitted query at http://localhost/argus/async/x9rix7zkufw7wxc2
+E-UPL-QERR-2 TAP query failed [Service error: "failed to read uploaded table UploadTable[t1,http://localhost/argus/results/upload_t1-z7jqzen1j62486gk] Connection refused"]
+
+Section EXA: Check content of examples document
+I-EXA-EURL-1 Reading examples document from http://localhost/argus/examples
+I-EXA-EXVT-1 Examples document vocab attribute "http://www.ivoa.net/rdf/examples#" is correct according to DALI 1.1, but won't work with some old TOPCAT versions (v4.3-4.4 required "ivo://ivoa.net/std/DALI-examples#", later versions don't care)
+I-EXA-EXMP-1 Examining example #1: caom-spatial-query
+I-EXA-QSUB-1 Submitting query: SELECT p.publisherID, o.telescope_name, o.instrument_name, p.calibrationLevel, p.dataProductType, p.position_bounds, p.energy_bounds, p.time_bounds, p.polarization_states FROM caom2.Observation AS o JOIN caom2.Plane AS p ON o.obsID = p.obsID WHERE o.intent = 'science' AND INTERSECTS(p.position_bounds, CIRCLE('ICRS', 180.0, 0.0, 0.5)) = 1
+I-EXA-QGET-1 Query GET URL: http://localhost/argus/sync?LANG=ADQL&QUERY=%0A++++++++++++++++++++SELECT+p.publisherID%2C+o.telescope_name%2C+o.instrument_name%2C+%0A++++++++++++++++++++++++p.calibrationLevel%2C+p.dataProductType%2C+%0A++++++++++++++++++++++++p.position_bounds%2C+p.energy_bounds%2C+p.time_bounds%2C+p.polarization_states%0A++++++++++++++++++++FROM+caom2.Observation+AS+o+JOIN+caom2.Plane+AS+p+ON+o.obsID+%3D+p.obsID%0A++++++++++++++++++++WHERE+o.intent+%3D+%27science%27+AND+INTERSECTS%28p.position_bounds%2C+CIRCLE%28%27ICRS%27%2C+180.0%2C+0.0%2C+0.5%29%29+%3D+1%0A++++++++++++++++++++&MAXREC=10
+W-EXA-YXDL-1 (l.8, c.128): Non-DALI 1.1 xtype value "uri" (FIELD publisherID)
+W-EXA-YXDL-2 (l.23, c.128): Non-DALI 1.1 xtype value "shape" (FIELD position_bounds)
+I-EXA-EXMP-2 Examining example #2: caom-artifact-join
+I-EXA-QSUB-2 Submitting query: SELECT p.publisherID, o.telescope_name, o.instrument_name, p.calibrationLevel, p.dataProductType, p.position_bounds, p.energy_bounds, p.time_bounds, p.polarization_states, a.uri FROM caom2.Observation AS o JOIN caom2.Plane AS p ON o.obsID = p.obsID JOIN caom2.Artifact AS a ON p.planeID = a.planeID WHERE o.intent = 'science' AND a.productType IN ('science', 'this') AND INTERSECTS(p.position_bounds, CIRCLE('ICRS', 180.0, 0.0, 0.5)) = 1
+I-EXA-QGET-2 Query GET URL: http://localhost/argus/sync?LANG=ADQL&QUERY=%0A++++++++++++++++++++SELECT+p.publisherID%2C+o.telescope_name%2C+o.instrument_name%2C+%0A++++++++++++++++++++++++p.calibrationLevel%2C+p.dataProductType%2C+%0A++++++++++++++++++++++++p.position_bounds%2C+p.energy_bounds%2C+p.time_bounds%2C+p.polarization_states%2C%0A++++++++++++++++++++++++a.uri%0A++++++++++++++++++++FROM+caom2.Observation+AS+o%0A++++++++++++++++++++JOIN+caom2.Plane+AS+p+ON+o.obsID+%3D+p.obsID%0A++++++++++++++++++++JOIN+caom2.Artifact+AS+a+ON+p.planeID+%3D+a.planeID%0A++++++++++++++++++++WHERE+o.intent+%3D+%27science%27%0A++++++++++++++++++...
+W-EXA-YXDL-3 (l.8, c.128): Non-DALI 1.1 xtype value "uri" (FIELD publisherID)
+W-EXA-YXDL-4 (l.23, c.128): Non-DALI 1.1 xtype value "shape" (FIELD position_bounds)
+W-EXA-YXDL-5 (l.35, c.115): Non-DALI 1.1 xtype value "uri" (FIELD uri)
+S-EXA-XNUM-1 Found 2 examples in 1 document
+S-EXA-XVAL-1 Syntax validity success/attempt: 2/2, Symbol validity success/attempt: 2/2, Execution success/attempt: 2/2
+
+Totals: Errors: 2; Warnings: 17; Infos: 144; Summaries: 23
+
