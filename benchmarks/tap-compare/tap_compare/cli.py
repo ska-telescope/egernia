@@ -287,19 +287,20 @@ def _select_classes(classes: list, wanted: list[str] | None) -> list:
     is read by the same tools. Nothing to restrict (a mixed-workload
     scenario) or no request leaves the rungs alone.
 
-    The mixed-workload rung has no class of its own; it answers to ``mix``,
-    the name it already carries in rung keys and summaries.
+    A comparison's class list carries the mixed workload as ``None``; it is
+    named ``mix`` on the command line, as it is in every rung key and every
+    published table.
     """
     if not wanted:
         return classes
-    by_name = {c or "mix": c for c in classes}
-    unknown = sorted(set(wanted) - set(by_name))
+    named = {c: c or "mix" for c in classes}
+    unknown = sorted(set(wanted) - set(named.values()))
     if unknown:
         raise SystemExit(
             f"--classes names classes this scenario does not run: {', '.join(unknown)}"
-            f" (available: {', '.join(by_name)})"
+            f" (available: {', '.join(sorted(named.values()))})"
         )
-    return [c for name, c in by_name.items() if name in wanted]
+    return [c for c in classes if named[c] in wanted]
 
 
 def _resolve_targets(

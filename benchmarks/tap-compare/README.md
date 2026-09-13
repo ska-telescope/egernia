@@ -117,6 +117,33 @@ PHASE=a nohup setsid benchmarks/tap-compare/final/run.sh > final-a.log 2>&1 &
 uv run --group tap-compare python benchmarks/tap-compare publish --run <run>
 ```
 
+## The three-server resource-scaling comparison (`scaling-three-way/`)
+
+The data behind the paper's vertical-scaling **figure** (tag
+`tap-compare-scaling-threeway-prereg-v1`): the parity workload measured at
+**8 / 16 / 24 CPUs and GiB** against **all three** servers, each sized at
+each tier by its own documented rule. It replaces the two-server
+`scaling/` run, which has no argus and predates PR #160.
+
+At tier 8 all three fit the host (8 + 8 + 8 server cores + 6 for the
+generator = 30) and interleave A,B,C; at 16 and 24 they cannot, so each is
+measured alone with the others **stopped** — never merely idle, because
+argus keeps draining its queue. The grid is narrow because a figure needs
+fewer cells than a table: the mix plus Q01, Q05, Q11 and Q13, both formats,
+c ∈ {8, 32}, 3 repetitions — 540 rungs, ≈ 13.4 h. The ladder stops at 32 on
+evidence: in the published scaling run c=64 came in *below* c=32 at every
+tier for both servers.
+
+Design, per-tier sizing, grid arithmetic, hypotheses and threats to validity
+are in [`scaling-three-way/PROTOCOL.md`](scaling-three-way/PROTOCOL.md);
+`scaling-three-way/run.sh` carries the final comparison's driver discipline
+(verification before measuring, the concurrent-measurement interlock,
+telemetry from the first rung, the pins recorded as applied).
+
+```bash
+nohup setsid benchmarks/tap-compare/scaling-three-way/run.sh > s3.log 2>&1 &
+```
+
 ## Fairness rules (lane A — the only lane)
 
 This harness is **never pointed at a production service someone else
