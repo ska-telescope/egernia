@@ -128,16 +128,32 @@ def test_committed_abort_wins_while_run_waits_on_the_row(tap_service, database_u
             "UPDATE uws.jobs SET phase = 'ABORTED' WHERE job_id = %s",
             (job_id,),
         )
-        with ThreadPoolExecutor(max_workers=1) as pool:
+        # Not a `with` block: the RUN thread is deliberately blocked on a row
+        # lock, and `ThreadPoolExecutor.__exit__` joins its workers with no
+        # timeout. So when the assertion below fails — a loaded runner, a
+        # slower commit — the join turns a ten-second failure into a hang
+        # whose traceback points at threading.py rather than at the
+        # assertion that actually failed. Shut the pool down without
+        # waiting instead, and let the failure report itself.
+        pool = ThreadPoolExecutor(max_workers=1)
+        try:
             pending_run = pool.submit(run_job)
             with psycopg.connect(database_url) as observer:
-                deadline = time.monotonic() + 10
+                deadline = time.monotonic() + 30
                 waiting = False
                 while time.monotonic() < deadline:
+                    # Any backend but this one blocked on a lock while running
+                    # a statement against uws.jobs. Matching the statement's
+                    # opening instead — "UPDATE uws.jobs SET phase = ..." —
+                    # tied the test to the order Python happens to give
+                    # update_job's keyword arguments, and matching this
+                    # observer's own text is the trap that hides the answer,
+                    # hence the pid guard.
                     row = observer.execute(
                         "SELECT EXISTS (SELECT 1 FROM pg_stat_activity"
                         " WHERE wait_event_type = 'Lock'"
-                        " AND query LIKE 'UPDATE uws.jobs SET phase = %')"
+                        " AND pid <> pg_backend_pid()"
+                        " AND query ILIKE '%uws.jobs%')"
                     ).fetchone()
                     assert row is not None
                     waiting = row[0]
@@ -147,6 +163,8 @@ def test_committed_abort_wins_while_run_waits_on_the_row(tap_service, database_u
                 assert waiting, "RUN never reached the locked conditional update"
             abort_conn.commit()
             assert not pending_run.result(timeout=10)
+        finally:
+            pool.shutdown(wait=False)
 
     assert httpx.get(f"{job_url}/phase", timeout=10).text == "ABORTED"
 
