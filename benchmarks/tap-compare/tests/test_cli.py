@@ -72,5 +72,8 @@ def test_classes_filter_keeps_scenario_order_and_refuses_unknown_names():
     assert cli._select_classes(["Q01", "Q02", "Q03"], None) == ["Q01", "Q02", "Q03"]
     assert cli._select_classes(["Q01", "Q02", "Q03"], ["Q03", "Q01"]) == ["Q01", "Q03"]
     assert cli._select_classes([None], None) == [None]
+    # the mixed-workload rung has no class; `mix` is how a run asks for it
+    assert cli._select_classes([None, "Q01", "Q13"], ["mix", "Q13"]) == [None, "Q13"]
+    assert cli._select_classes([None, "Q01"], ["Q01"]) == ["Q01"]
     with pytest.raises(SystemExit, match="Q99"):
         cli._select_classes(["Q01"], ["Q99"])
