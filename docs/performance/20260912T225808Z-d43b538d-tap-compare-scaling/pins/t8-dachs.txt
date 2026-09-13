@@ -1,0 +1,21 @@
+# 2026-09-12T22:59:35Z tier 8 dachs
+## tap-compare-dachs-1
+cpuset=16-23 nanocpus=8000000000 memory=8589934592
+
+  PID                 COMMAND
+  1981072             /usr/bin/python3 /usr/bin/dachs serve debug
+  1981353             /usr/lib/postgresql/17/bin/postgres -D /var/lib/postgresql/17/main -c config_file=/etc/postgresql/17/main/postgresql.conf
+  1981409             postgres: 17/main: checkpointer
+  1981410             postgres: 17/main: background writer
+  1981535             postgres: 17/main: walwriter
+  1981536             postgres: 17/main: autovacuum launcher
+  1981537             postgres: 17/main: logical replication launcher
+  2004152             postgres: 17/main: gavo gavo ::1(41904) idle
+  2011889             postgres: 17/main: gavo gavo ::1(38460) idle
+## SHOW
+effective_cache_size = 6GB
+max_connections = 100
+max_parallel_workers = 32
+max_worker_processes = 40
+shared_buffers = 2GB
+work_mem = 4MB
