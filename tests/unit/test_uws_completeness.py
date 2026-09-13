@@ -173,7 +173,7 @@ def test_watchdog_cancels_then_escalates_to_terminate(fake_db, monkeypatch):
     monkeypatch.setattr(worker._AbortWatchdog, "POLL_S", 0.01)
     monkeypatch.setattr(worker._AbortWatchdog, "TERMINATE_AFTER_CANCELS", 3)
     job = fake_db.add_job(phase="ABORTED")
-    with worker._AbortWatchdog(job["job_id"], 4242):
+    with worker._AbortWatchdog(job["job_id"], 4242, "postgresql://pinned/tap"):
         deadline = time_module.monotonic() + 2
         while not fake_db.terminated and time_module.monotonic() < deadline:
             time_module.sleep(0.01)
@@ -188,7 +188,7 @@ def test_watchdog_stays_quiet_while_job_active(fake_db, monkeypatch):
 
     monkeypatch.setattr(worker._AbortWatchdog, "POLL_S", 0.01)
     job = fake_db.add_job(phase="EXECUTING", worker_id=cast(Any, worker).WORKER_ID)
-    with worker._AbortWatchdog(job["job_id"], 4242):
+    with worker._AbortWatchdog(job["job_id"], 4242, "postgresql://pinned/tap"):
         time_module.sleep(0.1)
     assert fake_db.cancelled == []
     assert fake_db.terminated == []

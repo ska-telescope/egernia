@@ -66,3 +66,11 @@ def test_resume_with_different_targets_is_refused(tmp_path):
     _record(run, "aaa111")
     with pytest.raises(SystemExit, match="target"):
         _record(run, "aaa111", target={"name": "dachs-local"})
+
+
+def test_classes_filter_keeps_scenario_order_and_refuses_unknown_names():
+    assert cli._select_classes(["Q01", "Q02", "Q03"], None) == ["Q01", "Q02", "Q03"]
+    assert cli._select_classes(["Q01", "Q02", "Q03"], ["Q03", "Q01"]) == ["Q01", "Q03"]
+    assert cli._select_classes([None], None) == [None]
+    with pytest.raises(SystemExit, match="Q99"):
+        cli._select_classes(["Q01"], ["Q99"])
