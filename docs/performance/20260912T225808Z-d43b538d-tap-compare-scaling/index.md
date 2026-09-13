@@ -359,3 +359,100 @@ argus's extra per-request cost (2.3× egernia's) is consistent with the 303 redi
 ### Conditions
 
 Gates per tier with all three stacks up: nine `taplint` runs, all PASS (egernia and DaCHS 0 errors, argus 0 blocking / 2 total each time), and the three-way agreement gate **11/11 classes at every tier**. Corpus `bc411050…`, 500,096 rows verified in all three servers at every tier, `ivoa.obscore` `relkind = 'r'` (PR #160) and no `TAP_QUERY_DATABASE_URL` in either egernia container. argus's UWS job store was truncated immediately before **every** measured block, after the gates and the warm pass, so no block inherited another's history. Resource telemetry covered the run from its first rung. An untimed 45 s warm pass preceded each block. Host state per tier in `pins/t*-host.txt`; nothing else ran on the box.
+
+## Supplementary block — tier 24 under **twelve** generator processes (not comparable with tiers 8 and 16)
+
+Run directory `20260913T115758Z-f79672d9-tap-compare-scaling`, rendered under
+[`supplementary/`](supplementary/index.md). Planned at 2026-09-13T06:40Z —
+while tier 16 was still measuring and before any tier-24 rung existed
+(`supplementary-plan.md` in the main run directory) — and measured after the
+pre-registered run finished. It is **not** part of the pre-registered grid:
+its scenario lives in its own directory
+(`benchmarks/tap-compare/scaling-three-way-supplementary/`), differs from the
+registered one in `generator_processes` and nothing else (12 instead of 6),
+and reuses the frozen tier-24 pins by path. 72 rungs, tier 24 only, Q01 and
+Q11, both formats, c ∈ {8, 32}, 3 repetitions, **all three servers**.
+
+**It did what it was asked to do:** no rung was voided, the worst generator
+peak was **0.34** against 0.88 under six processes, and zero rungs exceeded
+1% errors. The three cells the guard voided at tier 24 now have numbers that
+pass it: argus Q01 CSV c=32 → 852.8 rps, argus Q11 CSV c=8 → 29.9 rps, argus
+Q11 VOTable c=8 → 23.5 rps.
+
+**But those are not "corrected" values, and the block's own control proves
+it.** Measuring all three servers rather than argus alone was the point:
+DaCHS is far too slow for client-side effects to bind, so it is the control —
+and **DaCHS does not move in any of its 24 cells (−3% to +2%)**, which means
+the host and the servers were the same. Against that control, the shifts are
+the harness:
+
+| cell | 6 procs | 12 procs | change | 6-proc peak |
+| --- | ---: | ---: | ---: | ---: |
+| argus Q11 CSV c=8 | 40.4 | 29.9 | **−26%** | 0.65 (voided) |
+| argus Q11 CSV c=32 | 42.3 | 31.1 | **−27%** | 0.50 |
+| argus Q11 VOTable c=32 | 33.1 | 23.7 | **−28%** | 0.53 |
+| egernia Q01 VOTable c=8 | 760.1 | 572.1 | **−25%** | 0.40 |
+| egernia Q01 CSV c=8 | 675.0 | 591.9 | −12% | 0.32 |
+| egernia Q01 CSV c=32 | 725.5 | 718.9 | −1% | 0.30 |
+| DaCHS, every cell | — | — | **−3% … +2%** | ≤ 0.04 |
+
+Two of those rows are decisive. **egernia's Q01 at c=8 fell 25% although it
+never came near the guard** (peak 0.40), and **argus's Q11 fell 27% at c=32,
+a cell that was never voided** — so the change cannot be "the guard was
+limiting these cells and now it is not". The mechanism is the generator's own
+six cores: twelve processes oversubscribe them two to one, and at c=8 the
+runner shards across `min(12, 8) = 8` processes, one connection each, which
+both oversubscribes and removes the overlap a process gets when it holds two
+connections. Client-side latency enters a closed loop directly, and it
+inflates most for the server whose responses are expensive to consume —
+argus, at 4.50 ms of client CPU per MiB against egernia's 1.07. egernia at
+c=32 and DaCHS everywhere are untouched because their client cost is a small
+share of their request time.
+
+So the supplementary is a **differently compromised** measurement, not a
+better one: six processes saturate one process on the widest cells, twelve
+oversubscribe the generator's cores on all of them. The honest conclusion is
+that **argus's Q11 at tier 24 cannot be measured cleanly by this harness on
+this host** — consuming 3.23 MiB per response at 4.50 ms per MiB is too
+expensive for six generator cores to absorb at these rates, whichever way the
+processes are arranged. A host with more generator cores, or a client that
+does not parse the body, would settle it; this one does not.
+
+### What this block can and cannot settle
+
+- **It can** give the voided cells numbers that pass the guard, and it can be
+  read **internally**: all three servers were measured under the same twelve
+  processes, so the three-way comparison *within this block* is sound. At
+  tier 24 under this generator, argus wins Q01 at c=32 (852.8 and 861.0
+  against egernia's 718.9 and 718.1), the two servers tie at c=8, and egernia
+  wins Q11 in three of four cells.
+- **It cannot be compared with tiers 8 and 16.** The generator differs, and
+  the table above shows that difference is worth up to 28% on exactly the
+  cells in question. Nothing here belongs on the figure's series, and nothing
+  here changes the pre-registered verdicts.
+- **It does not retrospectively repair the under-reporting** in the main
+  run's rungs that passed under six processes. argus's Q11 column at tiers 16
+  and 24 remains a lower bound in the report above.
+
+### S3's metadata half: still not supported
+
+S3 predicted that argus would stop scaling from tier 16 to 24 on the
+database-bound classes **while Q01, which barely touches the database, kept
+climbing**. The first half held decisively (17 of 20 cells tie, none higher,
+argus pinned at 8.19 cores). The second half needed argus's Q01 at tier 24,
+which the guard voided.
+
+The supplementary does **not** rescue it, and it is worth being exact about
+why. It measures argus Q01 at c=32 and tier 24 at 852.8 (CSV) and 861.0
+(VOTable) — but the tier-16 figures it would have to be read against
+(816.9 and 810.1) were taken under **six** processes, and this block has just
+demonstrated that the two generator shapes differ by up to 28% on
+client-expensive cells. A +4% difference across a change of measurement
+apparatus worth up to −28% is not evidence of anything.
+
+**The pre-registered verdict therefore stands unchanged: argus's Q01 at tier
+24 is void, and S3's metadata half is unsettled.** It is not contradicted
+either — argus's Q01 may well keep climbing, and both the pre-registered
+(855.2 VOTable, valid) and supplementary (861.0) figures sit above tier 16's.
+Settling it needs a generator this host cannot provide, not another
+re-measurement.
