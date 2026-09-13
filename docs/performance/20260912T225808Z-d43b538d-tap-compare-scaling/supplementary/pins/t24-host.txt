@@ -1,0 +1,19 @@
+# 2026-09-13T11:59:23Z tier 24, host
+generator_cpus=24-29
+generator_cores=24 25 26 27 28 29
+generator_processes=12
+classes=Q01 Q11
+order=argus dachs egernia
+allow_neighbours=0
+neighbours_hot=none
+## docker stats (all containers, name / cpu / mem / cpuset)
+tap-compare-argus-1 0.30% 537.8MiB / 9GiB cpuset=0-23
+tap-compare-argus-db-1 0.05% 484.2MiB / 15GiB cpuset=0-23
+tap-compare-dachs-1 0.08% 855.2MiB / 24GiB cpuset=0-23
+egernia-tap-api-1 0.56% 531.6MiB / 6GiB cpuset=0-23
+egernia-tap-executor-1 0.09% 81.48MiB / 6GiB cpuset=0-23
+egernia-db-1 5.10% 715.8MiB / 12GiB cpuset=0-23
+egernia-prometheus-1 0.00% 24.84MiB / 120.9GiB cpuset=
+toolkit-3 0.00% 5.934MiB / 120.9GiB cpuset=
+toolkit-2 0.00% 123MiB / 120.9GiB cpuset=
+toolkit-1 0.00% 15.18MiB / 120.9GiB cpuset=

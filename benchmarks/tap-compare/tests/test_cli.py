@@ -72,5 +72,28 @@ def test_classes_filter_keeps_scenario_order_and_refuses_unknown_names():
     assert cli._select_classes(["Q01", "Q02", "Q03"], None) == ["Q01", "Q02", "Q03"]
     assert cli._select_classes(["Q01", "Q02", "Q03"], ["Q03", "Q01"]) == ["Q01", "Q03"]
     assert cli._select_classes([None], None) == [None]
+    # the mixed-workload rung has no class; `mix` is how a run asks for it
+    assert cli._select_classes([None, "Q01", "Q13"], ["mix", "Q13"]) == [None, "Q13"]
+    assert cli._select_classes([None, "Q01"], ["Q01"]) == ["Q01"]
     with pytest.raises(SystemExit, match="Q99"):
         cli._select_classes(["Q01"], ["Q99"])
+
+
+def test_a_comparisons_mixed_workload_is_selected_by_the_name_it_is_published_under():
+    """A comparison's class list carries the mix as None; on the command line
+    and in every rung key and table it is `mix`, so --classes uses that."""
+    classes = [None, "Q01", "Q05", "Q11", "Q13"]
+    assert cli._select_classes(classes, ["Q01", "Q05", "Q11", "Q13", "mix"]) == classes
+    assert cli._select_classes(classes, ["mix"]) == [None]
+    assert cli._select_classes(classes, ["Q05"]) == ["Q05"]
+    with pytest.raises(SystemExit, match="mix"):  # the offer names it too
+        cli._select_classes(classes, ["Q99"])
+
+
+def test_compare_accepts_the_same_classes_flag_as_run(capsys):
+    """The option belongs on both commands that loop over classes, not only
+    the one that happened to need it first."""
+    for command in ("run", "compare"):
+        with pytest.raises(SystemExit):
+            cli.main([command, "--help"])
+        assert "--classes" in capsys.readouterr().out

@@ -1,0 +1,52 @@
+{
+  "corpus_sha256": "9f9da00f45f129bca6af68083a08a1a9e340eded89c29ad17d89eefe6cd7ff1b",
+  "git": {
+    "branch": "bench/09-read-replica-tier",
+    "describe": "tap-compare-scaling-replicas-prereg-v1-18-g716fe2a",
+    "dirty": false,
+    "sha": "716fe2a171d2125d837c77ff5ef752a694e6bb58"
+  },
+  "host": {
+    "cpu_count": 30,
+    "machine": "x86_64",
+    "platform": "Linux-6.8.0-134-generic-x86_64-with-glibc2.39",
+    "processor": "x86_64",
+    "python": "3.14.6"
+  },
+  "recorded_at": 1789029957.7542536,
+  "scenario": {
+    "scaling": {
+      "generator_processes": 6,
+      "ladder": [
+        8,
+        32,
+        64
+      ],
+      "maxrec": 100000,
+      "measure_seconds": 60,
+      "per_class": true,
+      "repetitions": 3,
+      "response_formats": [
+        "votable",
+        "csv"
+      ],
+      "warmup_seconds": 20
+    }
+  },
+  "seed": 424242,
+  "target": {
+    "egernia-local": {
+      "base_url": "http://localhost:8080/tap",
+      "name": "egernia-local",
+      "notes": "The repository's own docker-compose.yml stack, seeded with `uv run --group dataset python -m egernia_dataset.seed`.",
+      "portable_only": true,
+      "server": "egernia"
+    }
+  },
+  "tier_mode": "tiered",
+  "tiers": [
+    "24b",
+    "24r",
+    "24w"
+  ]
+}

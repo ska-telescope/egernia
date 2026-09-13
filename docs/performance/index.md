@@ -32,11 +32,16 @@ capacity checks record smaller local experiments separately.
 | `fixed-scaling` | [20260824T014320Z-a5058118-fixed-scaling](20260824T014320Z-a5058118-fixed-scaling/index.md) | D2 |
 | `keda` | [20260824T140134Z-bf7e4b24-keda](20260824T140134Z-bf7e4b24-keda/index.md) | D1 |
 | `profile` | [20260825T163627Z-034d69ba-profile](20260825T163627Z-034d69ba-profile/index.md) | D1 |
-| `tap-compare` | [20260903T160103Z-8fec0e75-tap-compare](20260903T160103Z-8fec0e75-tap-compare/index.md) (egernia vs DaCHS) · [20260906T145338Z-7aa14f6a-tap-compare](20260906T145338Z-7aa14f6a-tap-compare/index.md) (egernia vs argus) | D1 |
+| `tap-compare-scaling` | [20260912T225808Z-d43b538d-tap-compare-scaling](20260912T225808Z-d43b538d-tap-compare-scaling/index.md) (**the three-server scaling comparison**: egernia vs DaCHS vs argus at 8/16/24 CPUs — the paper's figure) · [20260905T073915Z-5f145831-tap-compare-scaling](20260905T073915Z-5f145831-tap-compare-scaling/index.md) (egernia vs DaCHS, superseded) | D1 |
+| `tap-compare` | [20260911T065452Z-41bfc513-tap-compare](20260911T065452Z-41bfc513-tap-compare/index.md) (**the final three-way comparison, Table A — one-process parity**: egernia vs DaCHS vs argus) · [20260912T025434Z-41bfc513-tap-compare](20260912T025434Z-41bfc513-tap-compare/index.md) (**Table B — equal CPU**: the same three servers, egernia with eight workers) · [20260908T061813Z-f1cf2c25-tap-compare](20260908T061813Z-f1cf2c25-tap-compare/index.md) (egernia vs argus, equal CPU) · [20260906T145338Z-7aa14f6a-tap-compare](20260906T145338Z-7aa14f6a-tap-compare/index.md) (egernia vs argus) · [20260903T160103Z-8fec0e75-tap-compare](20260903T160103Z-8fec0e75-tap-compare/index.md) (egernia vs DaCHS) | D1 |
 | `worker-sweep` | [20260825T180219Z-f8b21fc4-worker-sweep](20260825T180219Z-f8b21fc4-worker-sweep/index.md) | D1 |
 
 ## All runs
 
+- [20260912T225808Z-d43b538d-tap-compare-scaling](20260912T225808Z-d43b538d-tap-compare-scaling/index.md) — the three-server resource-scaling comparison at 8 / 16 / 24 CPUs: egernia scales ×3.6, DaCHS and argus ×1.3
+- [20260912T025434Z-41bfc513-tap-compare](20260912T025434Z-41bfc513-tap-compare/index.md) — the final three-way comparison, **Table B**: egernia (eight workers) vs the same GAVO DaCHS and CADC argus, unchanged
+- [20260911T065452Z-41bfc513-tap-compare](20260911T065452Z-41bfc513-tap-compare/index.md) — the final three-way comparison, **Table A**: egernia (one worker) vs GAVO DaCHS vs CADC argus, all three on disjoint cpusets
+- [20260908T061813Z-f1cf2c25-tap-compare](20260908T061813Z-f1cf2c25-tap-compare/index.md) — egernia (8 workers) vs CADC argus, equal-CPU parity
 - [20260906T145338Z-7aa14f6a-tap-compare](20260906T145338Z-7aa14f6a-tap-compare/index.md) — egernia vs CADC argus, one-process parity
 - [20260903T160103Z-8fec0e75-tap-compare](20260903T160103Z-8fec0e75-tap-compare/index.md)
 - [20260901T054529Z-3c8add85-tap-compare](20260901T054529Z-3c8add85-tap-compare/index.md)
