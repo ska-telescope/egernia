@@ -20,6 +20,10 @@ HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 SUITE=$(dirname "$HERE")
 REPO=$(cd "$SUITE/../.." && pwd)
 SCENARIO=${SCENARIO:-scaling3}
+# scenarios.yaml and targets.yaml come from here; the pins and this driver are
+# always $HERE's. A supplementary block outside the pre-registered grid points
+# this at its own directory so the frozen protocol directory is never edited.
+CONFIG_DIR=${CONFIG_DIR:-$HERE}
 TIERS=${TIERS:-8 16 24}
 GEN_CPUS=${GEN_CPUS:-24-29}
 RUN_NAME=${RUN_NAME:-}
@@ -92,7 +96,7 @@ sys.exit(1 if not generator or (generator & servers) else 0)
 
 tap() {
     (cd "$REPO" && taskset -c "$GEN_CPUS" uv run --group tap-compare \
-        python benchmarks/tap-compare --config-dir "$HERE" "$@")
+        python benchmarks/tap-compare --config-dir "$CONFIG_DIR" "$@")
 }
 compose_egernia() {
     docker compose -p "$EGERNIA_PROJECT" -f "$REPO/docker-compose.yml" \
@@ -259,7 +263,7 @@ record_host() {
         echo "generator_cpus=$GEN_CPUS"
         echo "generator_cores=$GEN_CORES"
         echo "generator_processes=$(awk -v s="  $SCENARIO:" '$0 == s {f = 1} \
-            f && /generator_processes:/ {print $2; exit}' "$HERE/scenarios.yaml")"
+            f && /generator_processes:/ {print $2; exit}' "$CONFIG_DIR/scenarios.yaml")"
         echo "classes=$CLASSES"
         echo "order=$(order_for "$tier")"
         echo "allow_neighbours=$ALLOW_NEIGHBOURS"

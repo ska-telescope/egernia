@@ -209,3 +209,30 @@ def test_argus_starts_every_measured_block_on_an_empty_job_store():
     # and it is a no-op when argus is stopped, which is every non-argus block
     # above tier 8
     assert "State.Running" in script
+
+
+def test_the_supplementary_block_changes_only_the_generator():
+    """Outside the pre-registered grid, in its own directory so the frozen one
+    is never edited — and differing from it in one field only, so its cells can
+    be read against each other even though they cannot be read against the
+    other tiers."""
+    supp = SUITE / "scaling-three-way-supplementary"
+    grid = yaml.safe_load((S3 / "scenarios.yaml").read_text())["scenarios"]["scaling3"]
+    block = yaml.safe_load((supp / "scenarios.yaml").read_text())["scenarios"]["scaling3-supp"]
+    assert block["generator_processes"] == 12 == 2 * grid["generator_processes"]
+    assert {k: v for k, v in block.items() if k != "generator_processes"} == {
+        k: v for k, v in grid.items() if k != "generator_processes"
+    }
+    # same corpus, mix, guards and targets as the run it supplements
+    for block_name in ("corpus", "mix", "guards"):
+        assert (
+            yaml.safe_load((supp / "scenarios.yaml").read_text())[block_name]
+            == yaml.safe_load((S3 / "scenarios.yaml").read_text())[block_name]
+        )
+    assert (supp / "targets.yaml").read_text() == (S3 / "targets.yaml").read_text()
+    # it owns no pins: the hardware shapes are the frozen protocol's, by path
+    assert not (supp / "pins").exists()
+    # and the driver takes its config directory from the environment
+    script = (S3 / "run.sh").read_text()
+    assert "CONFIG_DIR=${CONFIG_DIR:-$HERE}" in script
+    assert '--config-dir "$CONFIG_DIR"' in script
