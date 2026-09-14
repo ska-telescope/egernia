@@ -1,0 +1,68 @@
+# The three-server resource-scaling protocol's scenarios. `corpus`, `mix` and
+# `guards` are the parity protocol's (config/scenarios.yaml, tag
+# tap-compare-prereg-v1) verbatim: the tiers change, the workload does not.
+# Pre-registered in PROTOCOL.md.
+
+corpus:
+  seed: 424242
+  combinations: 400
+  projects: 3906
+
+mix:
+  Q01: 1
+  Q02: 3
+  Q03: 3
+  Q04: 2
+  Q05: 5
+  Q06: 2
+  Q07: 2
+  Q10: 1
+
+scenarios:
+  # The scaling grid, run once per server per tier. It feeds a *figure*, not
+  # a table, so it is deliberately narrow: the mixed workload plus four
+  # classes that span the cost structures (Q01 API-bound metadata, Q05
+  # indexed geometry, Q11 wide result, Q13 aggregate), both cross-server
+  # formats, two concurrencies, 3 repetitions. The driver passes
+  # `--classes Q01 Q05 Q11 Q13 mix`, so 5 x 2 x 2 x 3 = 60 rungs per
+  # server-tier (PROTOCOL.md, "The grid and its wall-clock").
+  #
+  # The ladder stops at 32 because c=64 buys nothing: in the published
+  # scaling run c=64 came in 4-6% *below* c=32 at every tier for both
+  # servers, so 32 already saturates even a 24-core stack.
+  scaling3:
+    ladder: [8, 32]
+    warmup_seconds: 20
+    measure_seconds: 60
+    repetitions: 3
+    response_formats: [votable, csv]
+    maxrec: 100000
+    # six processes on the six host cores no tier's servers use (24-29)
+    generator_processes: 6
+    per_class: true
+
+  # An untimed mixed-workload pass after a stack is (re)started, so the
+  # first measured repetition does not pay for a cold shared_buffers.
+  # Its results directory is discarded.
+  warm:
+    ladder: [8]
+    warmup_seconds: 0
+    measure_seconds: 45
+    repetitions: 1
+    response_formats: [csv]
+    maxrec: 100000
+    generator_processes: 6
+
+  # The driver's shake-out: proves the per-tier pins, the gates, the records
+  # and the publisher end to end. Measures nothing.
+  scaling3-smoke:
+    ladder: [2]
+    warmup_seconds: 2
+    measure_seconds: 6
+    repetitions: 1
+    response_formats: [csv]
+    maxrec: 100000
+    generator_processes: 1
+
+guards:
+  generator_cpu_max_fraction: 0.6

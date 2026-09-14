@@ -1,0 +1,59 @@
+# 2026-09-12T02:56:05Z phase b, egernia
+## egernia-db-1
+cpuset=0-7 nanocpus=0 memory=4294967296
+postgres -c shared_buffers=1GB -c effective_cache_size=3GB -c work_mem=64MB -c max_parallel_workers=144 -c max_worker_processes=152
+  PID                 COMMAND
+  2476975             postgres -c shared_buffers=1GB -c effective_cache_size=3GB -c work_mem=64MB -c max_parallel_workers=144 -c max_worker_processes=152
+  2477087             postgres: io worker 0
+  2477088             postgres: io worker 1
+  2477089             postgres: io worker 2
+  2477090             postgres: checkpointer
+  2477091             postgres: background writer
+  2477093             postgres: walwriter
+  2477094             postgres: autovacuum launcher
+  2477095             postgres: logical replication launcher
+  2478834             postgres: tap tap 172.18.0.3(38974) idle
+  2478835             postgres: tap tap 172.18.0.3(38984) idle
+  2480679             postgres: tap tap 172.18.0.4(42394) idle
+  2480681             postgres: tap tap 172.18.0.4(42400) idle
+  2480721             postgres: tap tap 172.18.0.4(42410) idle
+  2480724             postgres: tap tap 172.18.0.4(42420) idle
+  2480730             postgres: tap tap 172.18.0.4(42430) idle
+  2480731             postgres: tap tap 172.18.0.4(42444) idle
+  2480754             postgres: tap tap 172.18.0.4(42452) idle
+  2480755             postgres: tap tap 172.18.0.4(42462) idle
+  2480814             postgres: tap tap 172.18.0.4(42472) idle
+  2480815             postgres: tap tap 172.18.0.4(42476) idle
+  2480844             postgres: tap tap 172.18.0.4(42482) idle
+  2480845             postgres: tap tap 172.18.0.4(42486) idle
+  2481104             postgres: tap tap 172.18.0.4(44318) idle
+  2481105             postgres: tap tap 172.18.0.4(44328) idle
+  2481126             postgres: tap tap 172.18.0.4(44338) idle
+  2481127             postgres: tap tap 172.18.0.4(44346) idle
+## egernia-tap-api-1
+cpuset=0-7 nanocpus=0 memory=2147483648
+/bin/sh -c exec /srv/.venv/bin/uvicorn egernia_api.main:app --host 0.0.0.0 --port "${TAP_API_PORT:-8080}" --workers "${TAP_API_WORKERS:-1}" --backlog "${TAP_API_BACKLOG:-2048}" ${TAP_API_LIMIT_CONCURRENCY:+--limit-concurrency "${TAP_API_LIMIT_CONCURRENCY}"}
+TAP_API_WORKERS=8
+  PID                 COMMAND
+  2477524             /srv/.venv/bin/python /srv/.venv/bin/uvicorn egernia_api.main:app --host 0.0.0.0 --port 8080 --workers 8 --backlog 2048
+  2478012             /srv/.venv/bin/python -c from multiprocessing.resource_tracker import main;main(6)
+  2478013             /srv/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=9) --multiprocessing-fork
+  2478014             /srv/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=13) --multiprocessing-fork
+  2478015             /srv/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=17) --multiprocessing-fork
+  2478017             /srv/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=21) --multiprocessing-fork
+  2478018             /srv/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=25) --multiprocessing-fork
+  2478019             /srv/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=29) --multiprocessing-fork
+  2478022             /srv/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=33) --multiprocessing-fork
+  2478023             /srv/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=37) --multiprocessing-fork
+## egernia-tap-executor-1
+cpuset=0-7 nanocpus=0 memory=2147483648
+/srv/.venv/bin/python -m egernia_executor.worker
+  PID                 COMMAND
+  2477522             /srv/.venv/bin/python -m egernia_executor.worker
+## SHOW
+effective_cache_size = 3GB
+max_connections = 100
+max_parallel_workers = 144
+max_worker_processes = 152
+shared_buffers = 1GB
+work_mem = 64MB

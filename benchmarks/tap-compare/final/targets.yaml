@@ -1,0 +1,55 @@
+# The final three-way comparison (final/PROTOCOL.md). Lane A only: every
+# target here is a locally deployed server the operator controls.
+#
+# Four descriptors, three servers: egernia appears twice because the
+# experiment measures it in two shapes — one uvicorn worker (phase A, the
+# one-process parity table) and eight (phase B, the equal-CPU table) — while
+# DaCHS and argus are byte-identical between the phases, which makes their
+# two measurements a reproducibility check on each other.
+targets:
+  - name: egernia-final-w1
+    server: egernia
+    base_url: http://localhost:8080/tap
+    # egernia can also answer the srcnet.* classes (Q08/Q09/Q14), but a
+    # cross-server run holds every target to the portable ObsCore subset.
+    portable_only: true
+    notes: >-
+      Phase A. The repository's own docker-compose.yml stack (seeded with
+      `uv run --group dataset python -m egernia_dataset.seed`, ivoa.obscore
+      the denormalised table of PR #160, no TAP_QUERY_DATABASE_URL — one
+      database) under benchmarks/tap-compare/final/pins/egernia-w1.yml:
+      cpuset 0-7, 8 GiB as 4 db / 2 api / 2 executor, TAP_API_WORKERS=1.
+  - name: egernia-final-w8
+    server: egernia
+    base_url: http://localhost:8080/tap
+    portable_only: true
+    notes: >-
+      Phase B. The same stack and URL under
+      benchmarks/tap-compare/final/pins/egernia-w8.yml: the same cpuset and
+      memory split with TAP_API_WORKERS=8 — one uvicorn worker per pinned
+      core, as argus's Tomcat runs one thread per request on all eight — and
+      PostgreSQL's parallel budget re-derived for the resulting pool total.
+  - name: dachs-final
+    server: dachs
+    base_url: http://localhost:8081/tap
+    portable_only: true
+    notes: >-
+      GAVO DaCHS from the Debian gavodachs2-server package
+      (benchmarks/tap-compare/docker-compose.dachs.yml), serving the exported
+      ObsCore corpus via //obscore#publishObscoreLike, under
+      final/pins/dachs.yml: cpus 8 on cpuset 16-23, 8 GiB, its bundled
+      PostgreSQL sized to the container by the 1/4 rule. Unchanged between
+      the phases.
+  - name: argus-final
+    server: argus
+    base_url: http://localhost/argus
+    portable_only: true
+    notes: >-
+      CADC argus 1.0.27, the OpenCADC CAOM2 TAP service, from its vendor
+      image images.opencadc.org/caom2/argus over PostgreSQL 17 + pgsphere
+      (benchmarks/tap-compare/docker-compose.argus.yml), serving the exported
+      ObsCore corpus as a plain caom2.ObsCore table in place of its
+      Observation-join-Plane view; configuration in
+      benchmarks/tap-compare/targets/argus/, rationale in argus/PROTOCOL.md.
+      Under final/pins/argus.yml: cpuset 8-15. Unchanged between the phases,
+      with its UWS job store truncated before each.
