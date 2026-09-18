@@ -21,7 +21,43 @@ Parameters:
 | `RESPONSEFORMAT` (or `FORMAT`) | no | `votable` (default), `csv`, `tsv`, `json`, `parquet`, `arrow`, or the equivalent MIME types |
 | `MAXREC` | no | Row limit; `0` returns metadata only; overflow is flagged with `QUERY_STATUS=OVERFLOW` |
 | `REQUEST` | no | `doQuery` accepted for TAP 1.0 compatibility |
-| `UPLOAD` | no | Table upload: repeatable `name,uri` pairs separated by `;`. Use `param:<part>` for inline multipart VOTables. HTTP(S) sources are disabled unless their exact hosts are listed in `TAP_UPLOAD_ALLOWED_HOSTS`. Tables are queried as `TAP_UPLOAD.<name>`; TABLEDATA only. Limits: `TAP_UPLOAD_MAX_ROWS` (100000), `TAP_UPLOAD_MAX_BYTES` (32 MiB per source), `TAP_UPLOAD_MAX_TOTAL_BYTES` (32 MiB total), and `TAP_UPLOAD_MAX_SOURCES` (8). |
+| `UPLOAD` | no | Table upload: repeatable `name,uri` pairs separated by `;`. Use `param:<part>` for inline multipart VOTables. HTTP(S) sources are disabled unless their exact hosts are listed in `TAP_UPLOAD_ALLOWED_HOSTS`. Tables are queried as `TAP_UPLOAD.<name>`; the TABLEDATA and BINARY serializations are accepted (BINARY2 and FITS are not). Limits: `TAP_UPLOAD_MAX_ROWS` (100000), `TAP_UPLOAD_MAX_BYTES` (32 MiB per source), `TAP_UPLOAD_MAX_TOTAL_BYTES` (32 MiB total), and `TAP_UPLOAD_MAX_SOURCES` (8). |
+
+### Uploads and the row limit
+
+`MAXREC` is what truncates an upload query, and it truncates silently unless
+the client looks. A request that sends no `MAXREC` gets the server default,
+`TAP_DEFAULT_MAXREC`, which is **10,000** — so a positional cross-match of a
+100,000-row uploaded table returns 10,000 rows, not because the join found
+10,000 but because the response stopped there. The uploaded table is not the
+limit: `TAP_UPLOAD_MAX_ROWS` (100,000) caps what goes *in*, `MAXREC` caps what
+comes *out*, and the two are unrelated.
+
+Send `MAXREC` explicitly on any query whose result you intend to be complete.
+The server clamps it to `TAP_HARD_MAXREC` (1,000,000) without saying so, so a
+`MAXREC` above the hard cap is not an error — it is a truncation at 1,000,000.
+A result that needs more rows than that has to be split, or narrowed in ADQL.
+
+Truncation is reported per DALI as `QUERY_STATUS=OVERFLOW`, but where that
+indicator lives — and whether it exists at all — depends on
+`RESPONSEFORMAT`:
+
+| Format | Overflow indicator |
+|---|---|
+| `votable` | a second `<INFO name="QUERY_STATUS" value="OVERFLOW"/>`, after `</TABLE>`. Every response carries an `OK` INFO *before* the table, overflowed or not, so it is the trailing INFO that means anything — a parser that reads only the first one never sees a truncation |
+| `json` | the top-level `"status"` field, `"OVERFLOW"` instead of `"OK"` |
+| `parquet` | file key-value metadata, `IVOA.VOTable.QUERY_STATUS` = `OVERFLOW` |
+| `csv`, `tsv` | **none** — the body has nowhere to carry one |
+| `arrow` | **none** |
+
+There is no HTTP header and no non-200 status in any format: an overflowed
+response is a normal `200`. In `csv`, `tsv` and `arrow` a truncated result is
+therefore indistinguishable from a complete one, so a client using those
+formats should either send a `MAXREC` it knows exceeds the result, or compare
+the row count it received against the `MAXREC` it asked for — equality means
+the result may have been cut. `MAXREC=0` returns the columns and no rows (flagged
+`OVERFLOW`, since rows were withheld), which is the cheap way to check a
+query's shape before running it.
 
 ## Asynchronous queries (UWS 1.1)
 
