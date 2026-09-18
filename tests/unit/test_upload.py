@@ -126,7 +126,7 @@ def test_rewrite_upload_refs_case_insensitive():
     assert table_ident("t2") in rewritten
 
 
-def test_create_upload_tables_batches_inserts(fake_db):
+def test_create_upload_tables_copies_every_row(fake_db):
     from egernia_core.db import pool
 
     upload = UploadedTable(
@@ -138,10 +138,14 @@ def test_create_upload_tables_batches_inserts(fake_db):
         create_upload_tables(conn, [upload], "tap_reader")
     creates = [s for s in fake_db.statements if s.startswith("CREATE TEMP TABLE")]
     grants = [s for s in fake_db.statements if s.startswith("GRANT SELECT")]
-    inserts = [s for s in fake_db.statements if s.startswith("INSERT INTO pg_temp.tap_upload_t1")]
+    copies = [s for s in fake_db.statements if s.startswith("COPY")]
     assert creates == ["CREATE TEMP TABLE tap_upload_t1 (id bigint) ON COMMIT DROP"]
     assert grants == ["GRANT SELECT ON pg_temp.tap_upload_t1 TO tap_reader"]
-    assert len(inserts) == 3  # 500 + 500 + 201
+    # One statement for the whole table, where the batched INSERT it replaced
+    # sent one per 500 rows -- and every row in it.
+    assert copies == ["COPY pg_temp.tap_upload_t1 (id) FROM STDIN"]
+    assert not [s for s in fake_db.statements if s.startswith("INSERT INTO pg_temp.tap_upload_t1")]
+    assert fake_db.copied == upload.rows
 
 
 def test_declared_null_sentinel_reads_as_null_in_tabledata():

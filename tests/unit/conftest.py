@@ -90,7 +90,7 @@ class FakeStreamCursor:
         self._db.statements.append(statement.strip())
         if self._db.result_error is not None:
             raise self._db.result_error
-        return _FakeCopy(self._db.result_rows, self._db.result_description, statement)
+        return _FakeCopy(self._db.result_rows, self._db.result_description, statement, self._db)
 
 
 def copy_text_escape(raw: bytes) -> bytes:
@@ -107,10 +107,17 @@ def copy_text_escape(raw: bytes) -> bytes:
 
 
 class _FakeCopy:
-    def __init__(self, rows, description, statement):
+    def __init__(self, rows, description, statement, db=None):
         self._rows = list(rows)
         self._description = description
         self._votable = "FORMAT text" in statement
+        self._db = db
+
+    def write_row(self, row):
+        """`COPY ... FROM STDIN`, recorded rather than encoded: what the text
+        format does to a row is a question for a real server, and
+        `tests/component/test_upload_copy_differential.py` asks it."""
+        self._db.copied.append(tuple(row))
 
     def __enter__(self):
         return self
@@ -190,6 +197,7 @@ class FakeDB:
         self.jobs: dict[str, dict] = {}
         self.srcnet: dict[str, dict[tuple, dict]] = {}
         self.statements: list[str] = []
+        self.copied: list[tuple] = []  # rows written through `COPY ... FROM STDIN`
         # published tables (query.py permission check)
         self.published = [("ska.continuum_sources",), ("tap_schema.tables",)]
         # tap_schema.columns annotations (tap_schema_metadata)
