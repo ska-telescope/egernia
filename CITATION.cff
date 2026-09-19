@@ -1,5 +1,5 @@
 cff-version: 1.2.0
-title: "egernia: an IVOA TAP 1.1 server for the SKA Regional Centre Network"
+title: "egernia: an IVOA TAP 1.1 server for the SKA Observatory"
 message: "If you use this software in published work, please cite it."
 type: software
 authors:
