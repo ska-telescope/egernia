@@ -65,6 +65,12 @@ unpublished drafts in Zenodo before retrying. Do not edit published records into
 draft mode while the workflow is running. HTTP failures fail the job; check
 token scopes, environment configuration and Zenodo availability, then rerun.
 
+If a publishing-script fix was merged after the release was tagged, start a
+**new manual run from `main`** with the original release tag and target. Enable
+**publish** to complete publication of the existing draft. Re-running the old
+release-triggered job uses the original tagged script and will not pick up the
+fix; there is no need to move the tag or create a replacement release.
+
 The workflow records the target, source commit, record URL and concept record ID
 in the Actions summary. No Zenodo credentials are available to pull-request
 tests. API behavior is covered by mocked tests; a real sandbox run is still
