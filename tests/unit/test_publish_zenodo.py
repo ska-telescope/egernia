@@ -190,6 +190,37 @@ def test_http_failure_does_not_disclose_token(monkeypatch):
     assert "test-token" not in str(caught.value)
 
 
+def test_file_upload_sends_binary_stream_headers(monkeypatch, archive):
+    client = zenodo.Zenodo("zenodo-sandbox", "test-token")
+
+    def accept_upload(request, *, timeout):
+        assert request.get_method() == "PUT"
+        assert request.get_header("Content-type") == "application/octet-stream"
+        assert request.get_header("Content-length") == str(archive.stat().st_size)
+        assert request.get_header("Authorization") == "Bearer test-token"
+        assert request.get_header("Transfer-encoding") is None
+        assert request.data.read() == archive.read_bytes()
+        assert timeout == 120
+        return io.BytesIO(b'{"key": "egernia.zip"}')
+
+    monkeypatch.setattr(zenodo, "urlopen", accept_upload)
+    with archive.open("rb") as stream:
+        result = client.request("PUT", "/api/files/bucket/egernia.zip", file=stream)
+    assert result == {"key": "egernia.zip"}
+
+
+def test_metadata_request_keeps_json_content_type(monkeypatch, metadata):
+    client = zenodo.Zenodo("zenodo-sandbox", "test-token")
+
+    def accept_metadata(request, *, timeout):
+        assert request.get_header("Content-type") == "application/json"
+        assert json.loads(request.data) == {"metadata": metadata}
+        return io.BytesIO(b"{}")
+
+    monkeypatch.setattr(zenodo, "urlopen", accept_metadata)
+    client.request("PUT", "/api/deposit/depositions/10", payload={"metadata": metadata})
+
+
 def test_main_archives_tagged_source_and_citation(tmp_path, monkeypatch, release):
     """A dirty checkout must not alter either the metadata or the uploaded ZIP."""
     monkeypatch.chdir(tmp_path)
