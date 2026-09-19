@@ -1,0 +1,62 @@
+name: Publish to Zenodo
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing stable GitHub release tag
+        required: true
+        type: string
+      target:
+        description: Zenodo environment
+        type: choice
+        options: [zenodo-sandbox, zenodo]
+        default: zenodo-sandbox
+      publish:
+        description: Publish the deposit and mint its DOI (otherwise leave a draft)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# Serialize all versions, including manual retries, for each Zenodo account.
+concurrency:
+  group: zenodo-${{ inputs.target || 'zenodo' }}
+  cancel-in-progress: false
+
+jobs:
+  deposit:
+    if: >-
+      github.repository == 'ska-telescope/egernia' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (!github.event.release.draft && !github.event.release.prerelease))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: ${{ inputs.target || 'zenodo' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: '0.9.x'
+          enable-cache: false
+      - name: Resolve the published GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
+        run: |
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json tagName,publishedAt,isDraft,isPrerelease,url > "$RUNNER_TEMP/release.json"
+      - name: Archive the release on Zenodo
+        env:
+          ZENODO_TOKEN: ${{ secrets.ZENODO_TOKEN }}
+          ZENODO_TARGET: ${{ inputs.target || 'zenodo' }}
+          ZENODO_PUBLISH: ${{ github.event_name == 'release' || inputs.publish }}
+        run: |
+          uv run --no-project --python 3.14 --with PyYAML==6.0.3 \
+            python scripts/publish_zenodo.py --release "$RUNNER_TEMP/release.json"

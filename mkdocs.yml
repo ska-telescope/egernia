@@ -55,6 +55,7 @@ nav:
   - Generated model schemas: model-schemas.md
   - Deployment: deployment.md
   - Development: development.md
+  - Publishing releases: releases.md
   - Authentication: auth.md
   - VO Registry: registry.md
   - Observability: observability.md
