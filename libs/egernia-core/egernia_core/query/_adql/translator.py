@@ -266,6 +266,14 @@ class ADQLGeometryTranslationVisitor(ADQLParserVisitor):
     def visitCircle(self, ctx):
         s = 4 if isinstance(ctx.children[2], ADQLParser.Coord_sysContext) else 2
         radius = self._convert_values(ctx, s+2)[0]
+        # pg_sphere's scircle refuses a radius outside 0-90 degrees when the
+        # query runs; a constant one is refused here instead, with the limit
+        # named. A radius computed from columns can only be checked by
+        # pg_sphere, and the service reports that refusal as a query error.
+        if isinstance(radius, float) and not 0 <= radius <= 90:
+            raise QueryError('CIRCLE radius must be between 0 and 90 degrees '
+                             '(pg_sphere\'s circles stop at 90); got %g'
+                             % radius)
         circle_center = ctx.children[s]
         if isinstance(circle_center.children[0], ADQLParser.CoordinatesContext):
             point_parameters = self._convert_values(circle_center, 0)
