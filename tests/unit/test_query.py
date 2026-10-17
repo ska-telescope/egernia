@@ -12,6 +12,7 @@ from egernia_api.queries.query import prepare_query, run_sync
 from egernia_core.config import settings
 from egernia_core.errors import UsageError
 from starlette.requests import ClientDisconnect
+from starlette.responses import StreamingResponse
 
 QUERY = "SELECT source_id, ra FROM ska.continuum_sources"
 
@@ -158,5 +159,37 @@ def test_run_sync_sets_timeout_and_role(fake_db):
     prepared = prepare_query({"QUERY": QUERY})
     chunks, _ = run_sync(prepared)
     b"".join(chunks)
-    assert any("set_config" in s for s in fake_db.statements)
-    assert any("set_config('role'" in s for s in fake_db.statements)
+    settings_sql = [s for s in fake_db.statements if "set_config" in s]
+    # one round trip for the time limit, JIT and role
+    assert len(settings_sql) == 1
+    for name in ("statement_timeout", "jit", "role"):
+        assert f"set_config('{name}'" in settings_sql[0]
+
+
+def test_column_annotations_cached_until_schema_changes(fake_db):
+    def annotation_reads():
+        return sum("FROM tap_schema.columns" in s for s in fake_db.statements)
+
+    query.forget_published_tables()
+    prepared = prepare_query({"QUERY": QUERY, "RESPONSEFORMAT": "votable"})
+    first = b"".join(run_sync(prepared)[0])
+    second = b"".join(run_sync(prepared)[0])
+    assert first == second  # the cached annotations still reach the VOTable
+    assert annotation_reads() == 1
+    query.forget_published_tables()
+    b"".join(run_sync(prepared)[0])
+    assert annotation_reads() == 2
+
+
+def test_small_body_is_sent_whole_and_large_body_streamed(fake_db):
+    prepared = prepare_query({"QUERY": QUERY, "RESPONSEFORMAT": "csv"})
+    chunks, mime = run_sync(prepared)
+    response = query.sync_response(chunks, mime)
+    assert not isinstance(response, StreamingResponse)
+    assert response.body.decode().splitlines() == ["source_id,ra", "1,62.1", "2,62.2"]
+    assert response.media_type == "text/csv"
+
+    fake_db.result_rows = [("x" * 1024, float(i)) for i in range(2048)]
+    chunks, mime = run_sync(prepared)
+    assert isinstance(query.sync_response(chunks, mime), StreamingResponse)
+    cast(Any, chunks).close()

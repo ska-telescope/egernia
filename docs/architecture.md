@@ -121,7 +121,8 @@ sequenceDiagram
     A->>A: refuse tables absent from TAP_SCHEMA
     A->>P: acquire pooled connection
     Note over A,P: pool wait is measured separately from query time
-    A->>P: BEGIN, SET LOCAL ROLE tap_reader, SET LOCAL statement_timeout
+    A->>P: BEGIN, then one set_config for statement_timeout, jit and ROLE tap_reader
+    Note over A,P: column annotations come from a cache<br/>(30 s, dropped when the service changes TAP_SCHEMA)
     A->>P: stream statement (chunked reads)
     P-->>A: first rows
     loop until MAXREC or exhausted
@@ -129,7 +130,7 @@ sequenceDiagram
         A->>A: serialize to spool file
     end
     Note over A: connection released before delivery —<br/>a slow reader must not hold a pooled connection
-    A-->>C: 200, body streamed from the spool
+    A-->>C: 200, body sent whole (spool still in memory, up to 1 MiB)<br/>or streamed from the spool file
     A->>P: COMMIT, release connection
 ```
 

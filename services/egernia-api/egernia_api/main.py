@@ -33,13 +33,12 @@ from fastapi.responses import (
     JSONResponse,
     PlainTextResponse,
     RedirectResponse,
-    StreamingResponse,
 )
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from psycopg_pool import PoolTimeout
 from ska_src_logging import LogContext
 from ska_src_logging.integrations.fastapi import setup_otel_fastapi, setup_uvicorn_logging
-from starlette.concurrency import iterate_in_threadpool, run_in_threadpool
+from starlette.concurrency import run_in_threadpool
 
 from . import auth
 from .endpoints import vosi
@@ -47,7 +46,12 @@ from .endpoints.json_api import metadata_routers
 from .endpoints.json_api import router as json_router
 from .endpoints.uws_api import router as uws_router
 from .queries.params import gather_params
-from .queries.query import forget_published_tables, prepare_query, run_sync_for_request
+from .queries.query import (
+    forget_published_tables,
+    prepare_query,
+    run_sync_for_request,
+    sync_response,
+)
 from .queries.uploads import gather_upload_sources, parse_uploads
 
 # Structured records with SRCNet's shared fields, JSON in a container and
@@ -352,14 +356,15 @@ async def sync(request: Request):
     if params.get("REQUEST") == "getCapabilities":  # TAP 1.0 compatibility
         return RedirectResponse(f"{base_url()}/capabilities", status_code=303)
     upload_sources = await gather_upload_sources(request, params)
-    uploads = await run_in_threadpool(parse_uploads, upload_sources)
+    # most queries upload nothing: no worker thread just to learn that
+    uploads = await run_in_threadpool(parse_uploads, upload_sources) if upload_sources else []
     # ADQL translation is tens of milliseconds of pure-Python ANTLR work; on
     # the event loop it would stall every other request for that long
     prepared = await run_in_threadpool(prepare_query, params)
     # Spooling uses blocking PostgreSQL and file I/O, so it stays in the
     # threadpool; the request helper cancels that work if the client leaves.
     chunks, mime = await run_sync_for_request(request, prepared, uploads)
-    return StreamingResponse(iterate_in_threadpool(chunks), media_type=mime)
+    return sync_response(chunks, mime)
 
 
 @app.get("/tap/examples")
