@@ -6,6 +6,7 @@ import threading
 from dataclasses import replace
 from typing import Any, cast
 
+import psycopg
 import pytest
 from egernia_api.queries import query
 from egernia_api.queries.query import prepare_query, run_sync
@@ -160,3 +161,66 @@ def test_run_sync_sets_timeout_and_role(fake_db):
     b"".join(chunks)
     assert any("set_config" in s for s in fake_db.statements)
     assert any("set_config('role'" in s for s in fake_db.statements)
+
+
+# A database error the user's query causes is the client's to fix: it is
+# reported as a query error (a DALI error document, 400) carrying
+# PostgreSQL's message, not as an internal server error.
+
+
+@pytest.mark.parametrize(
+    ("error", "message"),
+    [
+        (psycopg.errors.DivisionByZero("division by zero"), "division by zero"),
+        (
+            psycopg.errors.NumericValueOutOfRange("value out of range: overflow"),
+            "value out of range",
+        ),
+        (psycopg.errors.UndefinedColumn('column "nope" does not exist'), "does not exist"),
+        (
+            psycopg.errors.InternalError_(
+                "radius must not be greater than 90 degrees or less than 0"
+            ),
+            "radius must not be greater than 90 degrees",
+        ),
+    ],
+)
+def test_a_database_error_of_the_query_is_a_query_error(fake_db, error, message):
+    fake_db.result_error = error
+    prepared = prepare_query({"QUERY": QUERY})
+    with pytest.raises(UsageError, match=message) as raised:
+        run_sync(prepared)
+    assert raised.value.message.startswith("query failed in the database: ")
+    assert raised.value.__cause__ is error
+
+
+def test_a_sync_query_out_of_time_points_to_async(fake_db):
+    fake_db.result_error = psycopg.errors.QueryCanceled("canceling statement due to timeout")
+    prepared = prepare_query({"QUERY": QUERY})
+    with pytest.raises(UsageError, match="synchronous time limit") as raised:
+        run_sync(prepared)
+    assert "/async" in raised.value.message
+
+
+def test_a_query_cancelled_for_a_gone_client_stays_a_disconnect(fake_db):
+    fake_db.result_error = psycopg.errors.QueryCanceled("canceling statement due to user request")
+    cancelled = threading.Event()
+    cancelled.set()
+    prepared = prepare_query({"QUERY": QUERY})
+    with pytest.raises(ClientDisconnect):
+        run_sync(prepared, cancelled=cancelled)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        psycopg.OperationalError("server closed the connection unexpectedly"),
+        psycopg.errors.InternalError_("could not read block 7 in file base/16384/16385"),
+        psycopg.errors.DiskFull("could not extend file: No space left on device"),
+    ],
+)
+def test_a_server_fault_stays_a_server_fault(fake_db, error):
+    fake_db.result_error = error
+    prepared = prepare_query({"QUERY": QUERY})
+    with pytest.raises(type(error)):
+        run_sync(prepared)

@@ -815,3 +815,25 @@ def test_lowered_predicate_records_its_geometry_columns():
     assert translate("SELECT 1 FROM t WHERE DISTANCE(p1, p2) < 0.5").geometry_columns == frozenset(
         {"p1", "p2"}
     )
+
+
+@pytest.mark.parametrize("radius", ["120", "90.5", "-1"])
+def test_a_circle_pg_sphere_cannot_draw_is_a_query_error(radius):
+    """pg_sphere's circles stop at 90 degrees; a constant radius beyond is
+    refused at translation, with the limit named, rather than failing inside
+    the database."""
+    with pytest.raises(QueryParseError, match="between 0 and 90 degrees"):
+        adql_to_postgresql(
+            "SELECT obs_id FROM ivoa.obscore"
+            f" WHERE 1 = CONTAINS(POINT('ICRS', s_ra, s_dec), CIRCLE('ICRS', 10, 20, {radius}))"
+        )
+
+
+@pytest.mark.parametrize("radius", ["0", "90", "s_fov * 2"])
+def test_a_circle_pg_sphere_can_draw_translates(radius):
+    # the limits themselves, and a radius only the database can evaluate
+    sql = adql_to_postgresql(
+        "SELECT obs_id FROM ivoa.obscore"
+        f" WHERE 1 = CONTAINS(POINT('ICRS', s_ra, s_dec), CIRCLE('ICRS', 10, 20, {radius}))"
+    )
+    assert "scircle(" in sql

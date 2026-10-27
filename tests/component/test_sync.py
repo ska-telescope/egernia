@@ -6,6 +6,7 @@ from xml.etree import ElementTree as ET
 import httpx
 import pytest
 import pyvo
+from egernia_core.config import GEOMETRY_BACKENDS, _choose
 
 pytestmark = pytest.mark.component
 
@@ -150,6 +151,62 @@ def test_sync_errors_are_dali_votables(tap_service, params):
     assert response.status_code == 400
     assert response.headers["content-type"].startswith("application/x-votable+xml")
     assert _query_status(response.text) == "ERROR"
+
+
+_CONE = (
+    "SELECT TOP 1 source_name FROM ska.continuum_sources WHERE 1=CONTAINS(POINT('ICRS', ra, dec), "
+)
+# pg_sphere's limits; skycell draws circles up to 180 degrees and answers
+# these. The backend is read as the services read it.
+_PGSPHERE_ONLY = pytest.mark.skipif(
+    _choose("TAP_GEOMETRY_BACKEND", "pgsphere", GEOMETRY_BACKENDS) != "pgsphere",
+    reason="pg_sphere's circle radius limit",
+)
+
+
+@pytest.mark.parametrize(
+    ("query", "fmt", "says"),
+    [
+        ("SELECT TOP 1 1/0 FROM ska.continuum_sources", "votable", "division by zero"),
+        # the CSV path is PostgreSQL's COPY, which fails differently
+        ("SELECT TOP 1 1/0 FROM ska.continuum_sources", "csv", "division by zero"),
+        # a constant radius pg_sphere cannot draw: refused at translation
+        pytest.param(
+            _CONE + "CIRCLE('ICRS', 62.3, -65.5, 120))",
+            "votable",
+            "between 0 and 90 degrees",
+            marks=_PGSPHERE_ONLY,
+        ),
+        # one computed per row: refused by pg_sphere as the query runs
+        pytest.param(
+            _CONE + "CIRCLE('ICRS', 62.3, -65.5, ra * 10))",
+            "votable",
+            "radius must not be greater",
+            marks=_PGSPHERE_ONLY,
+        ),
+    ],
+)
+def test_sync_query_the_database_refuses_is_a_dali_error(tap_service, query, fmt, says):
+    """These were internal server errors (500): a query PostgreSQL refuses is
+    the client's to fix, and DALI wants it as an error document."""
+    response = httpx.post(
+        f"{tap_service}/sync",
+        data={"REQUEST": "doQuery", "LANG": "ADQL", "QUERY": query, "RESPONSEFORMAT": fmt},
+    )
+    assert response.status_code == 400, response.text
+    assert response.headers["content-type"].startswith("application/x-votable+xml")
+    assert _query_status(response.text) == "ERROR"
+    assert says in response.text
+
+
+def test_json_query_the_database_refuses_is_a_json_error(tap_service):
+    root = tap_service.rsplit("/tap", 1)[0]
+    response = httpx.post(
+        f"{root}/api/v1/query", json={"query": "SELECT TOP 1 1/0 FROM ska.continuum_sources"}
+    )
+    assert response.status_code == 400, response.text
+    assert response.json()["error"] == "UsageError"
+    assert "division by zero" in response.json()["message"]
 
 
 def test_sync_case_insensitive_parameters(tap_service):
