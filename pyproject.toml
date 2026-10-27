@@ -13,6 +13,18 @@ dependencies = [
 
 [tool.uv]
 package = false
+# ska-src-logging caps OpenTelemetry below 0.51 (1.29), which carries
+# CVE-2026-114603 (fixed in opentelemetry-api 1.45.1). Lifted here until
+# ska-src-logging allows it.
+override-dependencies = [
+    "opentelemetry-api>=1.45.1,<2",
+    "opentelemetry-sdk>=1.45.1,<2",
+    "opentelemetry-exporter-otlp>=1.45.1,<2",
+    "opentelemetry-exporter-prometheus>=0.66b1,<0.67",
+    "opentelemetry-instrumentation-fastapi>=0.66b1,<0.67",
+    "opentelemetry-instrumentation-requests>=0.66b1,<0.67",
+    "opentelemetry-instrumentation-system-metrics>=0.66b1,<0.67",
+]
 
 [tool.uv.workspace]
 members = ["libs/egernia-core", "services/egernia-api", "services/egernia-executor"]
