@@ -44,8 +44,9 @@ The values are skycell's ``skypos``/``skyregion`` types, so a geometry column
 (ADQL 2.1) is one of those, and a stored footprint is a ``skyregion`` (see
 metadata/regions.py, ``stcs_to_skyregion``).
 
-skycell's polygons must be convex; a non-convex ADQL POLYGON is an error in
-the database rather than here.
+A polygon is passed to the database as written: skycell 0.35 or later
+answers a non-convex ADQL POLYGON (a simple one, its vertices within 90
+degrees of their mean); an earlier skycell refuses it there, not here.
 """
 
 from antlr4 import ParseTreeWalker
