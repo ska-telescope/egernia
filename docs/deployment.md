@@ -495,17 +495,29 @@ queries to fail one request at a time. `ivoa.obscore` rebuilds itself when
 its index definitions change.
 
 The `db` image installs pg_sphere always and skycell when built with a
-skycell release tag, commit or branch. Use skycell 0.31 or later: from 0.31
+skycell release tag, commit or branch. Use skycell 0.32 or later. From 0.31
 the cone scan tests cones on the position index's included `s_ra`/`s_dec`,
-which an earlier build ignores (it works, without that speed-up).
+which an earlier build ignores (it works, without that speed-up). From 0.32
+the epoch propagation functions take NULL arguments as the IVOA catalogue of
+ADQL user-defined functions says; with 0.31 a NULL parallax, proper motion or
+radial velocity makes the result NULL, so a propagated search drops every star
+without a measured radial velocity. From 0.35 an ADQL polygon may be
+non-convex (the ingest still refuses a non-convex `s_region`), and CENTROID is
+a polygon's centre of mass. From 0.36 a large cross-match can run
+in parallel workers, and the GiST index on a stored-region column finds the
+regions that contain a position in about 0.57 of pgSphere's time.
 
 ```bash
 # a release tag (or a commit): the build is reproducible, and the commit is
 # recorded in the image at /usr/share/skycell/COMMIT
-SKYCELL_REF=v0.31 TAP_GEOMETRY_BACKEND=skycell docker compose up --build -d
+SKYCELL_REF=v0.36 TAP_GEOMETRY_BACKEND=skycell docker compose up --build -d
 ```
 
-The extension's version is then `0.31` in `pg_available_extensions`.
+The extension's version is then `0.36` in `pg_available_extensions`. A
+database created with an earlier skycell keeps its extension version until it
+is updated: after rebuilding the image, run `ALTER EXTENSION skycell UPDATE;`
+in the TAP database. Nothing in the catalog changes from 0.35 to 0.36; the
+version tells the database which library behaviour it has.
 
 With Helm, set `config.geometryBackend: skycell` and use a tap-db image built
 with `SKYCELL_REF`.
@@ -529,6 +541,25 @@ What differs under skycell:
   a 32-gon, and a POSITION as a circle of 50 milliarcseconds.
 - `COORD1`, `COORD2` and `CENTROID` work, and the capabilities document lists
   them.
+- skycell's astrometry functions are declared in the capabilities
+  (`features-udf`, with their units): from the IVOA catalogue of ADQL
+  user-defined functions (Endorsed Note 1.2), `ivo_epoch_prop_pos` (rigorous
+  epoch propagation, ESA SP-1200 1.5.5), `ivo_healpix_index` and
+  `ivo_healpix_center` (NESTED); and GAVO DaCHS's `ivo_epoch_prop` (all six
+  parameters) and six-argument `ivo_epoch_prop_pos`. A NULL parallax, proper
+  motion or radial velocity is taken as the catalogue says (skycell 0.32).
+  A function that returns a position is a POINT wherever ADQL takes one — in
+  `CONTAINS`, `INTERSECTS`, `DISTANCE` or as a `CIRCLE` centre — and
+  `[ra, dec]` in the select list. A propagated position cannot use the position index, so write
+  a proper-motion search as an indexed cone widened by the largest motion of
+  interest, and the propagated test beside it:
+
+  ```sql
+  SELECT * FROM cat
+  WHERE 1 = CONTAINS(POINT('ICRS', ra, dec), CIRCLE('ICRS', 269.45, 4.69, 0.05 + 0.006))
+    AND 1 = CONTAINS(ivo_epoch_prop_pos(ra, dec, plx, pmra, pmdec, rv, 2016, 2026),
+                     CIRCLE('ICRS', 269.45, 4.69, 0.05))
+  ```
 - skycell defines INTERSECTS between a point and a region only that way
   round. A `POINT(...)` written second is moved first in translation (ADQL's
   INTERSECTS is symmetric), but a point-typed column (ADQL 2.1) is not

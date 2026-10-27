@@ -11,10 +11,12 @@ import contextlib
 import logging
 import pathlib
 import sys
+from xml.etree import ElementTree as ET
 
 import pytest
 import yaml
 from egernia_core.config import GEOMETRY_BACKENDS, _choose, settings
+from egernia_core.geometry import PGSPHERE, SKYCELL
 from egernia_core.metadata import ingest
 from egernia_core.metadata.regions import (
     POSITION_RADIUS_DEG,
@@ -266,6 +268,83 @@ def test_the_translation_cache_is_keyed_by_backend(skycell):
     assert "skycell_point" in translate(query).sql
     object.__setattr__(settings, "geometry_backend", "pgsphere")
     assert "spoint" in translate(query).sql
+
+
+# -- user-defined functions ----------------------------------------------------
+
+_PROP = "ivo_epoch_prop_pos(ra, dec, plx, pmra, pmdec, rv, 2016, 2026)"
+
+
+def test_a_position_function_is_a_point_in_the_predicates():
+    # what an epoch-propagated search is written as: the propagated position
+    # in CONTAINS, INTERSECTS and DISTANCE, where a POINT goes
+    assert sql(f"SELECT * FROM t WHERE 1 = CONTAINS({_PROP}, CIRCLE('ICRS', 10, 20, 0.5))") == (
+        "SELECT * FROM t WHERE contains(ivo_epoch_prop_pos(ra, dec, plx, pmra, pmdec, rv,"
+        " 2016, 2026), skycell_circle(10.0, 20.0, 0.5)) = 1;"
+    )
+    assert sql(
+        "SELECT * FROM t WHERE 1 = INTERSECTS(CIRCLE('ICRS', 10, 20, 0.5),"
+        " ivo_healpix_center(5, 7))"
+    ) == (
+        "SELECT * FROM t WHERE intersects(skycell_circle(10.0, 20.0, 0.5),"
+        " ivo_healpix_center(5, 7)) = 1;"
+    )
+    assert sql(f"SELECT DISTANCE({_PROP}, POINT('ICRS', ra, dec)) AS moved FROM t") == (
+        "SELECT distance(ivo_epoch_prop_pos(ra, dec, plx, pmra, pmdec, rv, 2016, 2026),"
+        " skycell_point(ra, dec)) AS moved FROM t;"
+    )
+
+
+def test_a_position_function_can_centre_a_circle():
+    assert sql(
+        "SELECT * FROM t WHERE 1 = CONTAINS(POINT('ICRS', ra, dec),"
+        " CIRCLE(ivo_healpix_center(5, 7), 1))"
+    ) == (
+        "SELECT * FROM t WHERE contains(skycell_point(ra, dec),"
+        " skycell_circle(coord1(ivo_healpix_center(5, 7)), coord2(ivo_healpix_center(5, 7)),"
+        " 1.0)) = 1;"
+    )
+
+
+def test_a_position_function_in_the_select_list_is_ra_dec_like_a_point():
+    assert sql(f"SELECT {_PROP}, ivo_healpix_center(5, 100) AS centre FROM t") == (
+        "SELECT ARRAY[coord1(ivo_epoch_prop_pos(ra, dec, plx, pmra, pmdec, rv, 2016, 2026)),"
+        " coord2(ivo_epoch_prop_pos(ra, dec, plx, pmra, pmdec, rv, 2016, 2026))]"
+        " AS ivo_epoch_prop_pos,"
+        " ARRAY[coord1(ivo_healpix_center(5, 100)), coord2(ivo_healpix_center(5, 100))]"
+        " AS centre FROM t;"
+    )
+
+
+def test_other_user_functions_pass_through():
+    # not a position: a number or an array, already what a client expects;
+    # and a position inside an expression is left to that expression
+    assert sql("SELECT ivo_epoch_prop(ra, dec, 1, 2, 3, 4, 2016, 2026) FROM t") == (
+        "SELECT ivo_epoch_prop(ra, dec, 1, 2, 3, 4, 2016, 2026) FROM t;"
+    )
+    assert sql("SELECT ivo_healpix_index(5, POINT('ICRS', ra, dec)) FROM t") == (
+        "SELECT ivo_healpix_index(5, skycell_point(ra, dec)) FROM t;"
+    )
+    assert sql(f"SELECT COORD1({_PROP}) FROM t") == (
+        "SELECT COORD1(ivo_epoch_prop_pos(ra, dec, plx, pmra, pmdec, rv, 2016, 2026)) FROM t;"
+    )
+
+
+def test_an_undeclared_function_is_still_no_geometry():
+    with pytest.raises(QueryError, match="unsupported geometry argument"):
+        sql("SELECT * FROM t WHERE 1 = CONTAINS(my_point(ra, dec), CIRCLE('ICRS', 1, 2, 3))")
+
+
+def test_the_declared_functions_name_their_point_results():
+    names = {f.name for f in SKYCELL.user_functions}
+    assert names == {
+        "ivo_epoch_prop",
+        "ivo_epoch_prop_pos",
+        "ivo_healpix_index",
+        "ivo_healpix_center",
+    }
+    assert SKYCELL.position_functions() == {"ivo_epoch_prop_pos", "ivo_healpix_center"}
+    assert PGSPHERE.user_functions == ()
 
 
 # -- footprints ----------------------------------------------------------------
@@ -531,10 +610,26 @@ def test_capabilities_name_the_backend_and_its_extra_functions(client, skycell):
         assert f"<feature><form>{form}</form></feature>" in body
 
 
+def test_capabilities_declare_the_user_functions(client, skycell):
+    root = ET.fromstring(client.get("/tap/capabilities").text)
+    (udfs,) = [
+        lf
+        for lf in root.iter("languageFeatures")
+        if lf.get("type") == "ivo://ivoa.net/std/TAPRegExt#features-udf"
+    ]
+    forms = {f.findtext("form"): f.findtext("description") for f in udfs.findall("feature")}
+    assert len(forms) == len(SKYCELL.user_functions)
+    assert (
+        "ivo_healpix_center(hpxOrder INTEGER, hpxIndex BIGINT) -> POINT" in forms
+    )  # the arrow survives the XML
+    assert all(forms.values())
+
+
 def test_capabilities_under_pg_sphere_are_unchanged(client):
     body = client.get("/tap/capabilities").text
     assert "ADQL translated to PostgreSQL/pg_sphere" in body
     assert "<form>COORD1</form>" not in body
+    assert "features-udf" not in body
 
 
 # -- geometry support functions (pg_sphere) ------------------------------------

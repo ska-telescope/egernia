@@ -59,6 +59,7 @@ def _data_model_elements() -> str:
 # functions are the backend's (geometry.py, adql_geometry_forms). The parser
 # itself is the vendored ADQL 2.1 fork in egernia_core.query._adql.
 _GEO_FEATURES = "ivo://ivoa.net/std/TAPRegExt#features-adqlgeo"
+_UDF_FEATURES = "ivo://ivoa.net/std/TAPRegExt#features-udf"
 
 _OTHER_ADQL_FEATURES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("ivo://ivoa.net/std/TAPRegExt#features-adql-string", ("LOWER", "UPPER", "ILIKE")),
@@ -79,6 +80,20 @@ def _adql_language_features() -> str:
         features = "".join(f"        <feature><form>{form}</form></feature>\n" for form in forms)
         blocks.append(
             f'      <languageFeatures type="{type_id}">\n{features}      </languageFeatures>\n'
+        )
+    # the user-defined functions the extension provides: a signature each
+    # (it holds "->", escaped) and what it computes, in which units
+    functions = geometry_backend().user_functions
+    if functions:
+        features = "".join(
+            f"        <feature>\n          <form>{escape(f.form)}</form>\n"
+            f"          <description>{escape(f.description)}</description>\n"
+            "        </feature>\n"
+            for f in functions
+        )
+        blocks.append(
+            f'      <languageFeatures type="{_UDF_FEATURES}">\n'
+            f"{features}      </languageFeatures>\n"
         )
     return "".join(blocks)
 

@@ -31,6 +31,9 @@ translation is close to the identity:
 - DISTANCE becomes ``distance()``, in degrees, in both of its forms. Compared
   with a radius in a WHERE or JOIN ON it is planned as the same indexed cone;
 - AREA becomes ``area()``, already in square degrees;
+- a declared user function that returns a position (geometry.py: ivo_epoch_prop_pos,
+  ivo_healpix_center) is a POINT wherever ADQL takes one -- CONTAINS,
+  INTERSECTS, DISTANCE, a CIRCLE centre -- and ``[ra, dec]`` in the select list;
 - COORD1, COORD2 and CENTROID pass through untranslated, as they do for
   pg_sphere -- but under skycell they name its own functions and work. A
   column they take is recorded as a geometry column, like one in CONTAINS or
@@ -41,16 +44,20 @@ The values are skycell's ``skypos``/``skyregion`` types, so a geometry column
 (ADQL 2.1) is one of those, and a stored footprint is a ``skyregion`` (see
 metadata/regions.py, ``stcs_to_skyregion``).
 
-skycell's polygons must be convex; a non-convex ADQL POLYGON is an error in
-the database rather than here.
+A polygon is passed to the database as written: skycell 0.35 or later
+answers a non-convex ADQL POLYGON (a simple one, its vertices within 90
+degrees of their mean); an earlier skycell refuses it there, not here.
 """
 
+from antlr4 import ParseTreeWalker
 from queryparser.exceptions import QueryError
 
+from ...geometry import SKYCELL
 from .ADQLParser import ADQLParser
 from .translator import (
     ADQLFunctionsTranslationVisitor,
     ADQLGeometryTranslationVisitor,
+    FormatListener,
     _aliased,
     _convert_values,
     _is_point,
@@ -61,6 +68,27 @@ from .translator import (
 
 # ADQL functions that reach skycell unchanged and take a geometry
 _PASSTHROUGH_GEOMETRY_FUNCTIONS = frozenset({"COORD1", "COORD2", "CENTROID"})
+
+# the declared user functions (geometry.py) that return a position, such as
+# ivo_epoch_prop_pos: a POINT wherever ADQL takes one
+_POSITION_FUNCTIONS = SKYCELL.position_functions()
+
+
+def _position_call(ctx):
+    """The call of a position-valued user function ctx consists of, or None."""
+    while not isinstance(ctx, ADQLParser.User_defined_functionContext):
+        if ctx.getChildCount() != 1:
+            return None
+        ctx = ctx.getChild(0)
+    return ctx if ctx.getChild(0).getText().lower() in _POSITION_FUNCTIONS else None
+
+
+def _sql(ctx, contexts):
+    """The SQL a parse subtree prints as, with whatever is translated in it,
+    by the formatter that prints the whole query."""
+    listener = FormatListener(None, contexts, {})
+    ParseTreeWalker.DEFAULT.walk(listener, ctx)
+    return listener.format_query().rstrip(";")
 
 
 def _bare_column(ctx):
@@ -136,6 +164,11 @@ class SkycellGeometryTranslationVisitor(ADQLGeometryTranslationVisitor):
             column = circle_center.children[0].getText()
             self.geometry_columns.add(column)
             ra, dec = f"coord1({column})", f"coord2({column})"
+        elif (call := _position_call(circle_center)) is not None:
+            # a position-valued function, ivo_epoch_prop_pos(...) say
+            self.visit(call)
+            position = _sql(call, self.contexts)
+            ra, dec = f"coord1({position})", f"coord2({position})"
         else:
             point_ctx = circle_center.children[0].children[0].children[0]
             if not isinstance(point_ctx, ADQLParser.PointContext):
@@ -216,6 +249,22 @@ class SkycellFunctionsTranslationVisitor(ADQLFunctionsTranslationVisitor):
         # and scircle is pg_sphere's: the comparison stays as written.
         return None
 
+    def _geometry_argument(self, gve_ctx):
+        # a position-valued function is a POINT argument like a constructor
+        call = _position_call(gve_ctx)
+        if call is not None:
+            self.visit(call)
+            return _sql(call, self.contexts)
+        return super()._geometry_argument(gve_ctx)
+
+    def _point_argument(self, coord_value_ctx):
+        # ... and one of DISTANCE's points
+        call = _position_call(coord_value_ctx)
+        if call is not None:
+            self.visit(call)
+            return _sql(call, self.contexts)
+        return super()._point_argument(coord_value_ctx)
+
     def visitArea(self, ctx):
         arg = self._geometry_argument(ctx.children[2])
         ctx_text = _aliased(f"area({arg})", _select_item(ctx, 9), "adql_area")
@@ -286,6 +335,17 @@ class SkycellFunctionsTranslationVisitor(ADQLFunctionsTranslationVisitor):
                 # token of the name would be glued to the next one
                 ctx.children = [ctx.getChild(1)]
                 self.contexts[ctx] = text
+        # a position-valued user function in the select list is a POINT
+        # there too, [ra, dec], where skycell would print its own text form
+        elif name.lower() in _POSITION_FUNCTIONS and _bare_select_item(ctx) is not None:
+            position = _sql(ctx, self.contexts)
+            text = _aliased(
+                f"ARRAY[coord1({position}), coord2({position})]",
+                _bare_select_item(ctx),
+                name.lower(),
+            )
+            ctx.children = [ctx.getChild(1)]
+            self.contexts[ctx] = text
         return result
 
     def _sql_of(self, ctx):
