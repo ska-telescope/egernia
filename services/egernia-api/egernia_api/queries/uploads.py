@@ -123,6 +123,9 @@ def resolve_upload_sources(upload_param: str | None, files: dict[str, bytes]) ->
 async def gather_upload_sources(request: Request, params: dict) -> dict[str, bytes]:
     """The request's UPLOAD sources: multipart parts and fetched URIs."""
     files = await gather_upload_files(request)
+    if not params.get("UPLOAD"):
+        # what resolve_upload_sources answers, without a worker thread to say it
+        return {}
     return await run_in_threadpool(resolve_upload_sources, params.get("UPLOAD"), files)
 
 

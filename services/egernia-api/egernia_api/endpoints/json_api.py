@@ -26,9 +26,7 @@ from egernia_core.errors import NotFoundError, UsageError
 from egernia_core.metadata import ingest
 from egernia_core.metadata.plugins import MetadataPlugin, active_plugins
 from fastapi import APIRouter, Depends, Query, Request, Response
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from starlette.concurrency import iterate_in_threadpool
 
 from ..auth import auth_summary, gated, owner_of, require
 from ..queries.jobs import (
@@ -39,7 +37,7 @@ from ..queries.jobs import (
     run_or_abort,
     wait_for_phase,
 )
-from ..queries.query import prepare_query, run_sync_for_request
+from ..queries.query import prepare_query, run_sync_for_request, sync_response
 
 API_PREFIX = "/api/v1"
 METADATA_LIST_DEFAULT = 100
@@ -124,7 +122,7 @@ async def sync_query(body: QueryRequest, request: Request):
     """
     prepared = prepare_query(_tap_params(body, fmt=body.format))
     chunks, mime = await run_sync_for_request(request, prepared)
-    return StreamingResponse(iterate_in_threadpool(chunks), media_type=mime)
+    return sync_response(chunks, mime)
 
 
 # ---------------------------------------------------------------------------
