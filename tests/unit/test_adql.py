@@ -900,8 +900,7 @@ def test_a_box_past_a_pole_is_a_query_error(box):
     translation rather than returning the wrong rows."""
     with pytest.raises(QueryParseError, match="past a pole"):
         adql_to_postgresql(
-            f"SELECT obs_id FROM ivoa.obscore"
-            f" WHERE 1 = CONTAINS(POINT('ICRS', s_ra, s_dec), {box})"
+            f"SELECT obs_id FROM ivoa.obscore WHERE 1 = CONTAINS(POINT('ICRS', s_ra, s_dec), {box})"
         )
 
 
@@ -915,7 +914,6 @@ def test_a_box_past_a_pole_is_a_query_error(box):
 )
 def test_a_box_up_to_a_pole_translates(box):
     sql = adql_to_postgresql(
-        "SELECT obs_id FROM ivoa.obscore"
-        f" WHERE 1 = CONTAINS(POINT('ICRS', s_ra, s_dec), {box})"
+        f"SELECT obs_id FROM ivoa.obscore WHERE 1 = CONTAINS(POINT('ICRS', s_ra, s_dec), {box})"
     )
     assert "sbox(" in sql
