@@ -67,8 +67,10 @@ jobs:
             skycell_ref: ""
           - backend: skycell
             label: " (skycell)"
-            # skycell v0.36, by commit so the build is reproducible
-            skycell_ref: 3327ff624faed849dd35b39223e6682aca645ef2
+            # skycell v0.58, by commit so the build is reproducible; the
+            # version the skycell rerun of the paper's benchmarks measures
+            # (benchmarks/tap-compare/final-skycell/PROTOCOL.md)
+            skycell_ref: 0d998bd928e026da05631e6f0e9b3b6dbab7570d
     env:
       TAP_GEOMETRY_BACKEND: ${{ matrix.backend }}
     steps:

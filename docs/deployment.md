@@ -512,10 +512,13 @@ regions that contain a position in about 0.57 of pgSphere's time on x86
 ```bash
 # a release tag (or a commit): the build is reproducible, and the commit is
 # recorded in the image at /usr/share/skycell/COMMIT
-SKYCELL_REF=v0.36 TAP_GEOMETRY_BACKEND=skycell docker compose up --build -d
+SKYCELL_REF=v0.58 TAP_GEOMETRY_BACKEND=skycell docker compose up --build -d
 ```
 
-The extension's version is then `0.36` in `pg_available_extensions`. A
+Up to 0.36 the extension's version in `pg_available_extensions` matched the
+release tag. Later releases number the SQL extension separately: v0.58
+installs extension version `0.50`. So identify a build by the commit in
+`/usr/share/skycell/COMMIT`, not by the extension version. A
 database created with an earlier skycell keeps its extension version until it
 is updated: after rebuilding the image, run `ALTER EXTENSION skycell UPDATE;`
 in the TAP database. Nothing in the catalog changes from 0.35 to 0.36; the
