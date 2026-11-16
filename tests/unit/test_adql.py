@@ -837,3 +837,50 @@ def test_a_circle_pg_sphere_can_draw_translates(radius):
         f" WHERE 1 = CONTAINS(POINT('ICRS', s_ra, s_dec), CIRCLE('ICRS', 10, 20, {radius}))"
     )
     assert "scircle(" in sql
+
+
+# -- only declared functions are callable -------------------------------------
+# The grammar reads any name before "(" as a user-defined function and prints
+# it as written, so without a filter every function the query role can execute
+# is reachable. Only the functions the capabilities declare are allowed.
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        "pg_sleep(10)",
+        "PG_SLEEP(10)",  # the match is case-insensitive
+        "set_config('statement_timeout', '0', false)",
+        "version()",
+        "pg_read_file('/etc/passwd')",
+    ],
+)
+def test_an_undeclared_function_is_refused(call):
+    with pytest.raises(QueryParseError, match="unknown function"):
+        adql_to_postgresql(f"SELECT {call} FROM ska.continuum_sources")
+
+
+def test_an_undeclared_function_is_refused_where_it_hides():
+    # not only the select list: nested in a geometry argument
+    with pytest.raises(QueryParseError, match="unknown function"):
+        adql_to_postgresql(
+            "SELECT ra FROM ska.continuum_sources WHERE 1 = CONTAINS("
+            "POINT('ICRS', ra, dec), CIRCLE('ICRS', 1, 2, pg_sleep(10)))"
+        )
+
+
+def test_the_declared_adql_functions_still_translate():
+    # the ADQL math/string/aggregate functions the grammar has rules of its
+    # own for are keyword tokens, not user-defined calls, and stay callable
+    sql = adql_to_postgresql(
+        "SELECT COUNT(*), AVG(ra), ABS(dec), LOWER(obs_id), COALESCE(ra, 0)"
+        " FROM ska.continuum_sources"
+    )
+    assert "avg(" in sql.lower()
+
+
+def test_a_function_named_in_a_string_literal_is_not_a_call():
+    # the token before "(" rule reads the parse, so text inside a literal is
+    # left alone
+    sql = adql_to_postgresql("SELECT 'pg_sleep(1)' AS s FROM ska.continuum_sources")
+    assert "pg_sleep" in sql
