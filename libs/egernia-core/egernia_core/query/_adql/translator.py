@@ -254,6 +254,20 @@ class ADQLGeometryTranslationVisitor(ADQLParserVisitor):
         except ValueError:
             raise QueryError('sbox values incorrect')
 
+        # A box whose top or bottom edge passes a pole cannot be an sbox:
+        # pg_sphere reflects an out-of-range latitude back over the pole
+        # (91 deg -> 89 deg, longitude + 180), so the box silently folds to
+        # the wrong patch of sky and misses the points it was meant to find.
+        # Refuse it rather than translate to a wrong answer. A region that
+        # reaches a pole is a cap -- use CIRCLE at the pole instead.
+        if pos_cent_dec - ddec < -90 or pos_cent_dec + ddec > 90:
+            raise QueryError(
+                'BOX reaches past a pole (latitude %.6f to %.6f is outside '
+                '-90 to 90); pg_sphere cannot represent a box that covers a '
+                'pole. Use CIRCLE at the pole instead.'
+                % (pos_cent_dec - ddec, pos_cent_dec + ddec)
+            )
+
         ctx_text = "sbox( spoint(%s(%s),%s(%s)),spoint(%s(%s),%s(%s)) )" %\
             (self.conunits, '%.12f' % (pos_cent_ra - dra),
              self.conunits, '%.12f' % (pos_cent_dec - ddec),
