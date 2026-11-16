@@ -884,3 +884,36 @@ def test_a_function_named_in_a_string_literal_is_not_a_call():
     # left alone
     sql = adql_to_postgresql("SELECT 'pg_sleep(1)' AS s FROM ska.continuum_sources")
     assert "pg_sleep" in sql
+
+
+@pytest.mark.parametrize(
+    "box",
+    [
+        "BOX('ICRS', 0, 89, 4, 4)",  # top edge at Dec 91, past the N pole
+        "BOX('ICRS', 0, -89, 4, 4)",  # bottom edge at Dec -91, past the S pole
+        "BOX('ICRS', 0, 0, 4, 190)",  # a tall box swallowing both poles
+    ],
+)
+def test_a_box_past_a_pole_is_a_query_error(box):
+    """pg_sphere reflects an out-of-range latitude back over the pole, so a box
+    reaching a pole silently folds to the wrong patch of sky. It is refused at
+    translation rather than returning the wrong rows."""
+    with pytest.raises(QueryParseError, match="past a pole"):
+        adql_to_postgresql(
+            f"SELECT obs_id FROM ivoa.obscore WHERE 1 = CONTAINS(POINT('ICRS', s_ra, s_dec), {box})"
+        )
+
+
+@pytest.mark.parametrize(
+    "box",
+    [
+        "BOX('ICRS', 10, 20, 4, 4)",  # nowhere near a pole
+        "BOX('ICRS', 0, 86, 4, 8)",  # top edge exactly at Dec 90
+        "BOX('ICRS', 0, -86, 4, 8)",  # bottom edge exactly at Dec -90
+    ],
+)
+def test_a_box_up_to_a_pole_translates(box):
+    sql = adql_to_postgresql(
+        f"SELECT obs_id FROM ivoa.obscore WHERE 1 = CONTAINS(POINT('ICRS', s_ra, s_dec), {box})"
+    )
+    assert "sbox(" in sql
