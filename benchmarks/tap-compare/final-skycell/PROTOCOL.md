@@ -1,6 +1,8 @@
 # The skycell rerun: pre-registered protocol
 
-Frozen before any measurement at tag `tap-compare-final-skycell-prereg-v1`.
+Frozen before any measurement at tag `tap-compare-final-skycell-prereg-v1`,
+amended once before measurement (Amendment 1, tag
+`tap-compare-final-skycell-prereg-v2`).
 Three experiments, one directory. Two of them are existing protocols run
 again with **one** change to egernia; the third is new and isolates that
 change. Everything not stated here is the base protocol's, unchanged:
@@ -242,3 +244,34 @@ PHASE=b nohup setsid benchmarks/tap-compare/final-skycell/run.sh > final-b.log 2
 nohup setsid benchmarks/tap-compare/final-skycell/scaling.sh > s3.log 2>&1 &
 uv run --group tap-compare python benchmarks/tap-compare publish --run <run>   # each
 ```
+
+## Amendment 1: enforcing the cone-class stop, and the smoke runs (before measurement)
+
+Registered after review of the pre-registration (PR #220), before any rung of
+this protocol was measured. The `v1` tag stays where it is; this amendment is
+tagged `tap-compare-final-skycell-prereg-v2`.
+
+- **The cone-class stop is now enforced, not just stated.** "Pre-flight" says
+  a disagreement on Q05, Q06, Q07 or Q12 stops the experiment. The drivers
+  did not do it: `compare --gates-only` fails only on taplint, and the
+  harness then excludes a disagreeing class and measures the rest, the base
+  protocols' rule. Every driver now reads the gate record it just wrote
+  (`gates.json`, or `t<tier>-gates.json` per scaling tier) and refuses,
+  before the warm pass, if any cone class disagrees (`backend.sh`,
+  `refuse_cone_disagreement`). That covers classes outside a grid too: the
+  agreement gate runs over all eleven portable classes even where the
+  scaling grid measures five. Disagreements on other classes keep the base
+  protocols' exclusion.
+- **The smoke scenarios run the mix only.** `backend-ab-smoke` and
+  `scaling3-skycell-smoke` are not per-class, and the harness refuses a
+  `--classes` list that names classes a scenario does not run. With
+  `SCENARIO` set to either, the drivers now pass `--classes mix`. The
+  registered class lists for the measured scenarios are unchanged.
+- **The pg_sphere stack's reproduction command** in the published report
+  names `db tap-api tap-executor`, as `ab.sh` does. A bare `up -d` would also
+  start a second Prometheus on host port 9090, beside the skycell project's.
+
+Nothing about the workload, grids, gates, statistics, hypotheses or pins
+changes. `tests/test_final_skycell.py` covers each point; the refusal is
+tested by sourcing the function alone against gate records, never by
+running a driver.

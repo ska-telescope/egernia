@@ -35,6 +35,9 @@ TIERS=${TIERS:-8 16 24}
 GEN_CPUS=${GEN_CPUS:-24-29}
 RUN_NAME=${RUN_NAME:-}
 ALLOW_NEIGHBOURS=${ALLOW_NEIGHBOURS:-0}
+# the smoke scenario runs the mix only, and --classes may not name a class
+# a scenario does not run
+if [ "$SCENARIO" = scaling3-skycell-smoke ]; then CLASSES=${CLASSES:-mix}; fi
 CLASSES=${CLASSES:-Q01 Q05 Q11 Q13 mix}
 
 # Explicit compose project names: the volumes and container names this
@@ -387,6 +390,7 @@ for tier in $TIERS; do
         tap compare --targets $TARGETS --scenario "$SCENARIO" --tier "$tier" --gates-only \
             --resume "$RUN_NAME"
     fi
+    refuse_cone_disagreement "$SUITE/results/$RUN_NAME/t$tier-gates.json"
     for s in egernia dachs argus; do record "$s" "$tier"; done
     record_host "$tier"
     start_sampler

@@ -44,3 +44,25 @@ check_backend() {
     esac
     [ "$cone" -ge 1 ] || fail "$db: no $backend cone index on ivoa.obscore"
 }
+
+# refuse_cone_disagreement <gates.json>: the cone classes are what this rerun
+# exists to measure, so a disagreement on any of them stops the experiment
+# (PROTOCOL.md, "Pre-flight"; amendment 1). `compare --gates-only` itself
+# fails only on taplint: a class that fails agreement is excluded and the
+# rest measured, which is the base protocols' rule and stays theirs for every
+# other class.
+CONE_CLASSES="Q05 Q06 Q07 Q12"
+refuse_cone_disagreement() {
+    local gates=$1 disagreed
+    [ -f "$gates" ] || fail "no gate record at $gates"
+    disagreed=$(python3 -c '
+import json, sys
+gates = json.load(open(sys.argv[1]))
+if "agreement" not in gates:
+    sys.exit("no agreement verdict in " + sys.argv[1])
+print(" ".join(sorted(set(gates["agreement"]["disagreed"]) & set(sys.argv[2:]))))
+' "$gates" $CONE_CLASSES) || fail "cannot read the agreement verdict in $gates"
+    [ -z "$disagreed" ] || fail "cone classes disagree across targets: $disagreed" \
+        "($gates) - a skycell correctness finding; nothing is measured (PROTOCOL.md)"
+    log "PROGRESS cone classes agree ($CONE_CLASSES)"
+}

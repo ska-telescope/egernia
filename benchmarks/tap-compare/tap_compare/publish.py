@@ -204,8 +204,11 @@ STACKS = {
         " `benchmarks/tap-compare/final-skycell/pins/egernia-ab-pgsphere.yml`"
         " (`cpuset` 8-15; 8 GiB split 4 db / 2 api / 2 executor;"
         " `TAP_API_WORKERS=1`; `benchmarks/tap-compare/final-skycell/PROTOCOL.md`)",
+        # the three services only: a bare `up -d` would start a second
+        # Prometheus on host port 9090, beside the skycell project's
         "docker compose -p egernia-pgs -f docker-compose.yml \\\n"
-        "    -f benchmarks/tap-compare/final-skycell/pins/egernia-ab-pgsphere.yml up -d",
+        "    -f benchmarks/tap-compare/final-skycell/pins/egernia-ab-pgsphere.yml \\\n"
+        "    up -d db tap-api tap-executor",
     ),
     "egernia-local-equalcpu": (
         "egernia in `benchmarks/tap-compare/argus-equal-cpu/egernia-equalcpu.yml`"

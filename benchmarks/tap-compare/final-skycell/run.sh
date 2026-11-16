@@ -359,6 +359,7 @@ if [ -z "$RUN_NAME" ]; then
 else
     tap compare --targets $TARGETS --scenario "$SCENARIO" --gates-only --resume "$RUN_NAME"
 fi
+refuse_cone_disagreement "$SUITE/results/$RUN_NAME/gates.json"
 record_host
 record egernia "$EGERNIA_CONTAINERS"
 record dachs "$DACHS_CONTAINERS"

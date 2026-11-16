@@ -9,6 +9,7 @@ under test).
 import json
 import pathlib
 import re
+import subprocess
 
 import yaml
 from tap_compare import publish
@@ -170,3 +171,63 @@ def test_the_pgsphere_stacks_resources_are_its_own(tmp_path):
         pgs.read_bytes()
     )
     assert publish.resources(run_dir, [{**row, "target": "egernia-ab-skycell"}]) == {}
+
+
+# -- amendment 1: the review of PR #220 ------------------------------------
+
+
+def _refuse(tmp_path, gates: dict | None) -> subprocess.CompletedProcess:
+    """Run backend.sh's refuse_cone_disagreement alone: a pure function over
+    a gate record, sourced with the drivers' log/fail, recreating nothing."""
+    path = tmp_path / "gates.json"
+    if gates is not None:
+        path.write_text(json.dumps(gates))
+    script = (
+        'log() { echo "$*"; }; fail() { echo "FAIL $*"; exit 1; }; '
+        f'. "{HERE / "backend.sh"}"; refuse_cone_disagreement "{path}"'
+    )
+    return subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False)
+
+
+def test_a_cone_class_disagreement_stops_the_experiment(tmp_path):
+    for cone in ("Q05", "Q06", "Q07", "Q12"):
+        out = _refuse(tmp_path, {"agreement": {"agreed": [], "disagreed": ["Q03", cone]}})
+        assert out.returncode == 1 and cone in out.stdout, cone
+
+
+def test_other_disagreements_keep_the_base_protocols_exclusion(tmp_path):
+    out = _refuse(tmp_path, {"agreement": {"agreed": ["Q05"], "disagreed": ["Q03", "Q11"]}})
+    assert out.returncode == 0, out.stdout
+
+
+def test_a_missing_or_verdictless_gate_record_stops_the_experiment(tmp_path):
+    assert _refuse(tmp_path, None).returncode == 1
+    assert _refuse(tmp_path, {"targets": {}}).returncode == 1
+
+
+def test_every_driver_refuses_cone_disagreement_before_timing():
+    for name, record in (
+        ("run.sh", "gates.json"),
+        ("ab.sh", "gates.json"),
+        ("scaling.sh", "gates.json"),
+    ):
+        text = (HERE / name).read_text()
+        refuse = text.index('refuse_cone_disagreement "$SUITE/results/$RUN_NAME/')
+        assert record in text[refuse : text.index("\n", refuse)], name
+        assert text.rindex("--gates-only") < refuse < text.index("--scenario warm"), name
+    assert '/t$tier-gates.json"' in (HERE / "scaling.sh").read_text()
+
+
+def test_smoke_scenarios_are_driven_over_the_mix_only():
+    scenarios = _yaml(HERE / "scenarios.yaml")["scenarios"]
+    for smoke, driver in (("backend-ab-smoke", "ab.sh"), ("scaling3-skycell-smoke", "scaling.sh")):
+        assert not scenarios[smoke].get("per_class"), smoke  # the mix is all it runs
+        text = (HERE / driver).read_text()
+        assert re.search(
+            rf'if \[ "\$SCENARIO" = {smoke} \]; then CLASSES=(\$\{{CLASSES:-)?mix', text
+        )
+
+
+def test_the_pgsphere_reproduction_starts_no_second_prometheus():
+    command = publish.STACKS["egernia-ab-pgsphere"][1]
+    assert command.rstrip().endswith("up -d db tap-api tap-executor")

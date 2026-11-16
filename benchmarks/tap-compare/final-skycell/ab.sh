@@ -24,7 +24,10 @@ SCENARIO=${SCENARIO:-backend-ab}
 GEN_CPUS=${GEN_CPUS:-24-29}
 RUN_NAME=${RUN_NAME:-}
 ALLOW_NEIGHBOURS=${ALLOW_NEIGHBOURS:-0}
+# the registered seven; the smoke scenario runs the mix only, and --classes
+# may not name a class a scenario does not run
 CLASSES="Q03 Q05 Q06 Q07 Q12 Q13 mix"
+if [ "$SCENARIO" = backend-ab-smoke ]; then CLASSES=mix; fi
 TARGETS="egernia-ab-skycell egernia-ab-pgsphere"
 SKY_CONTAINERS="egernia-db-1 egernia-tap-api-1 egernia-tap-executor-1"
 PGS_CONTAINERS="egernia-pgs-db-1 egernia-pgs-tap-api-1 egernia-pgs-tap-executor-1"
@@ -197,6 +200,7 @@ if [ -z "$RUN_NAME" ]; then
 else
     tap compare --targets $TARGETS --scenario "$SCENARIO" --gates-only --resume "$RUN_NAME"
 fi
+refuse_cone_disagreement "$SUITE/results/$RUN_NAME/gates.json"
 record skycell "$SKY_CONTAINERS"
 record pgsphere "$PGS_CONTAINERS"
 
