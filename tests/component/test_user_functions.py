@@ -235,3 +235,19 @@ def test_epoch_propagation_gives_the_ivoa_catalogue_answers(tap_service, skycell
     # every example answered (no NULL), within a micro-arcsecond
     assert [n for n, _ in rows] == [1, 2, 3, 4, 5]
     assert all(off is not None and off < 1 for _, off in rows), rows
+
+
+def test_an_undeclared_function_is_refused_over_sync(tap_service):
+    # pg_sleep is callable by the query role; the service must refuse it as
+    # ADQL rather than hand it to the database
+    response = httpx.post(
+        f"{tap_service}/sync",
+        data={
+            "LANG": "ADQL",
+            "REQUEST": "doQuery",
+            "FORMAT": "json",
+            "QUERY": "SELECT pg_sleep(10) FROM ska.continuum_sources",
+        },
+    )
+    assert response.status_code == 400, response.text
+    assert "unknown function" in response.text
