@@ -306,6 +306,33 @@ def test_a_position_function_can_centre_a_circle():
     )
 
 
+def test_centroid_is_a_point_wherever_adql_takes_one():
+    # CENTROID returns a position, so it is usable as a point argument too:
+    # in CONTAINS/DISTANCE and as a CIRCLE centre, not only the select list.
+    # The name keeps the query's casing (PostgreSQL folds it to centroid()).
+    poly = "POLYGON('ICRS', 10, 20, 14, 20, 12, 24)"
+    centroid = "CENTROID(skycell_polygon(10.0, 20.0, 14.0, 20.0, 12.0, 24.0))"
+    assert sql(f"SELECT DISTANCE(CENTROID({poly}), POINT('ICRS', 12, 21)) AS d FROM t") == (
+        f"SELECT distance({centroid}, skycell_point(12.0, 21.0)) AS d FROM t;"
+    )
+    assert sql(
+        f"SELECT * FROM t WHERE 1 = CONTAINS(CENTROID({poly}), CIRCLE('ICRS', 12, 21, 5))"
+    ) == (f"SELECT * FROM t WHERE contains({centroid}, skycell_circle(12.0, 21.0, 5.0)) = 1;")
+    # CENTROID of a stored region column works the same way
+    assert sql("SELECT DISTANCE(CENTROID(s_region), POINT('ICRS', 1, 2)) AS d FROM t") == (
+        "SELECT distance(CENTROID(s_region), skycell_point(1.0, 2.0)) AS d FROM t;"
+    )
+
+
+def test_coord_functions_are_not_points():
+    # COORD1/COORD2 return a double, not a position: still refused as geometry
+    with pytest.raises(QueryError, match="unsupported geometry argument"):
+        sql(
+            "SELECT * FROM t WHERE 1 = CONTAINS("
+            "COORD1(POINT('ICRS', ra, dec)), CIRCLE('ICRS', 1, 2, 3))"
+        )
+
+
 def test_a_position_function_in_the_select_list_is_ra_dec_like_a_point():
     assert sql(f"SELECT {_PROP}, ivo_healpix_center(5, 100) AS centre FROM t") == (
         "SELECT ARRAY[coord1(ivo_epoch_prop_pos(ra, dec, plx, pmra, pmdec, rv, 2016, 2026)),"

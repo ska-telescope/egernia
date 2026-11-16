@@ -75,14 +75,19 @@ _PASSTHROUGH_GEOMETRY_FUNCTIONS = frozenset({"COORD1", "COORD2", "CENTROID"})
 # ivo_epoch_prop_pos: a POINT wherever ADQL takes one
 _POSITION_FUNCTIONS = SKYCELL.position_functions()
 
+# everything that returns a position and so is usable wherever ADQL takes a
+# point: the user functions above and CENTROID (COORD1/COORD2 return doubles,
+# so they are not here). skycell's centroid() returns a skypos.
+_POINT_RETURNING = _POSITION_FUNCTIONS | {"centroid"}
+
 
 def _position_call(ctx):
-    """The call of a position-valued user function ctx consists of, or None."""
+    """The call of a position-valued function ctx consists of, or None."""
     while not isinstance(ctx, ADQLParser.User_defined_functionContext):
         if ctx.getChildCount() != 1:
             return None
         ctx = ctx.getChild(0)
-    return ctx if ctx.getChild(0).getText().lower() in _POSITION_FUNCTIONS else None
+    return ctx if ctx.getChild(0).getText().lower() in _POINT_RETURNING else None
 
 
 def _sql(ctx, contexts):
