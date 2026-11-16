@@ -14,6 +14,7 @@ members = [
     "egernia-core",
     "egernia-executor",
 ]
+constraints = [{ name = "pytest", specifier = "<9.2" }]
 overrides = [
     { name = "opentelemetry-exporter-prometheus", specifier = ">=0.50b0" },
     { name = "opentelemetry-instrumentation-fastapi", specifier = ">=0.50b0" },
