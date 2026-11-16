@@ -32,7 +32,7 @@ Table 6 are present with their standard units, UCDs and utypes.
 | `s_resolution` | `data_products.beam_size` (already arcseconds) |
 | `t_resolution`, `em_res_power` | NULL — the model does not carry them, and NULL is permitted |
 | `facility_name`, `instrument_name` | the identically-named `observations` columns |
-| `s_region_geom` *(non-standard, `std = 0`)* | the pgsphere footprint derived from `s_region` at ingestion — see [Metadata plugins](plugins.md#querying-footprints-s_region) |
+| `s_region_geom` *(non-standard, `std = 0`)* | the footprint derived from `s_region` at ingestion (a pgsphere `spoly`, or a skycell `skyregion` under `TAP_GEOMETRY_BACKEND=skycell`) — see [Metadata plugins](plugins.md#querying-footprints-s_region) |
 
 The extra `s_region_geom` column is what makes footprint queries work
 directly on the table:
@@ -183,10 +183,13 @@ live relation and swaps it in by rename, all inside its one transaction:
    `ivoa.obscore`, and it is released at commit a few statements later —
    a query on `ivoa.obscore` waits milliseconds, not the build.
 
-The build is dominated by the two pgsphere GiST indexes (the footprint and
-the position expression), whose build is insertion-based; on 500,000
-products the backfill itself takes seconds and each GiST index minutes.
-Ingest is paused for that long, once.
+Under the pg_sphere backend the build is dominated by the two pgsphere GiST
+indexes (the footprint and the position expression), whose build is
+insertion-based; on 500,000 products the backfill itself takes seconds and
+each GiST index minutes. Ingest is paused for that long, once. Under the
+skycell backend the position index is a B-tree on the HEALPix cell and the
+footprint index is skycell's GiST over `skyregion`, both much cheaper to
+build.
 
 An `ivoa.obscore` that already exists, is a table, and does not carry this
 service's fingerprint comment is left alone entirely: that deployment is

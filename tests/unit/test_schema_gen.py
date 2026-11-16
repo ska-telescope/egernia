@@ -129,8 +129,11 @@ def test_ddl_migrates_new_model_fields_into_existing_tables():
 def test_s_region_gets_a_derived_geometry_companion():
     """The footprint column is STC-S text; its pgsphere companion is what
     ADQL INTERSECTS/CONTAINS actually query (package 7)."""
+    # built here, not at import: the companion's type follows the geometry
+    # backend, which the suite pins per test
+    by_name = {t.name: t for t in build_tables(SRCIngestionNotification, "srcnet", "projects")}
     for table in ("data_products", "artifacts"):
-        cols = {c.name: c for c in BY_NAME[table].columns}
+        cols = {c.name: c for c in by_name[table].columns}
         geom = cols["s_region_geom"]
         assert geom.sql_type == "spoly"
         assert geom.derived_from == "s_region"

@@ -14,9 +14,18 @@ import math
 
 import psycopg
 import pytest
+from egernia_core.config import GEOMETRY_BACKENDS, _choose
 from egernia_core.query.adql import adql_to_postgresql
 
-pytestmark = pytest.mark.component
+pytestmark = [
+    pytest.mark.component,
+    # The lowering is the pg_sphere translation's: skycell plans
+    # `distance(...) < r` as its indexed cone without one.
+    pytest.mark.skipif(
+        _choose("TAP_GEOMETRY_BACKEND", "pgsphere", GEOMETRY_BACKENDS) != "pgsphere",
+        reason="DISTANCE lowering applies to the pgsphere backend only",
+    ),
+]
 
 SCHEMA = "xm_test"
 RADII = (1.0 / 3600.0, 60.0 / 3600.0, 1.0)

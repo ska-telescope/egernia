@@ -367,6 +367,8 @@ def test_a_deployment_still_serving_the_view_is_migrated_to_the_table(tap_servic
     running — and leave the triggers behind so the next write is followed."""
     import psycopg
     from egernia_core import bootstrap
+    from egernia_core.config import GEOMETRY_BACKENDS, _choose
+    from egernia_core.geometry import BACKENDS
     from egernia_core.metadata.plugins import active_plugins
 
     with psycopg.connect(database_url) as conn:
@@ -392,7 +394,12 @@ def test_a_deployment_still_serving_the_view_is_migrated_to_the_table(tap_servic
                 " AND tablename = 'obscore'"
             )
         }
-        assert {"obscore_did_key", "obscore_did_trgm", "obscore_spoint_gist"} <= indexes
+        # the position index of the backend the services run under, parsed
+        # from their environment as the services parse it (this process's
+        # settings may be pinned by a suite)
+        backend = BACKENDS[_choose("TAP_GEOMETRY_BACKEND", "pgsphere", GEOMETRY_BACKENDS)]
+        position_index = f"obscore_{backend.position_index_suffix}"
+        assert {"obscore_did_key", "obscore_did_trgm", position_index} <= indexes
         triggers = {
             row[0]
             for row in conn.execute(

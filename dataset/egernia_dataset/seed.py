@@ -131,10 +131,12 @@ def grow_products_to(conn, cfg: dict, target_products: int, batch_projects: int)
     index = generate.highest_project(conn)
     if index:
         log.info("resuming generation from project %d", index)
+    # the footprint written for s_region_geom's type: spoly or skycell's skyregion
+    levels = generate._levels(conn)
     while index < wanted_projects:
         lo = index + 1
         hi = min(index + batch_projects, wanted_projects)
-        for _level, statement in generate.LEVELS:
+        for _level, statement in levels:
             with conn.cursor() as cur:
                 cur.execute(statement, generate._params(cfg, lo, hi))
             conn.commit()

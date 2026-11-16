@@ -34,6 +34,8 @@ import annotated_types
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 
+from ..config import geometry_backend
+
 SQL_TYPES = {
     str: "text",
     int: "bigint",
@@ -44,6 +46,7 @@ SQL_TYPES = {
 TAP_DATATYPES = {
     "text": ("char", "*"),
     "spoly": ("char", "*"),
+    "skyregion": ("char", "*"),
     "bigint": ("long", None),
     "double precision": ("double", None),
     "boolean": ("boolean", None),
@@ -235,19 +238,21 @@ def _scalar_column(
 
 
 # The footprint column the data models carry as STC-S text. Text is not
-# queryable: each such column gets a derived pgsphere companion so ADQL
-# INTERSECTS/CONTAINS work over the ingested metadata.
+# queryable: each such column gets a derived geometry companion so ADQL
+# INTERSECTS/CONTAINS work over the ingested metadata -- a pgsphere spoly,
+# or a skycell skyregion under the skycell geometry backend.
 REGION_SOURCE = "s_region"
 REGION_SUFFIX = "_geom"
 
 
 def _region_companion(source: ColumnSpec) -> ColumnSpec:
+    backend = geometry_backend()
     return ColumnSpec(
         name=f"{source.name}{REGION_SUFFIX}",
-        sql_type="spoly",
+        sql_type=backend.region_type,
         nullable=True,
         description=(
-            "pgsphere footprint derived from "
+            f"{backend.name} footprint derived from "
             f"{source.name} at ingestion; query it with INTERSECTS/CONTAINS"
         ),
         derived_from=source.name,
@@ -400,17 +405,11 @@ def ddl_statements(tables: list[TableSpec], query_role: str) -> list[str]:
             for col in table.columns
             if col.index
         )
-        # Cone searches translate to `spoint(RADIANS(s_ra), RADIANS(s_dec))
-        # @ scircle(...)`, and only an index on that *expression* is ever
-        # considered — a GiST index on a stored point column would not be.
-        # Any generated table carrying the ObsCore position pair gets it.
+        # Any generated table carrying the ObsCore position pair gets the
+        # index cone searches use (position_index_statements).
         names = {c.name for c in table.columns}
         if {"s_ra", "s_dec"} <= names:
-            statements.append(
-                f"CREATE INDEX IF NOT EXISTS {table.name}_spoint_gist"
-                f" ON {table.qualified}"
-                " USING gist (spoint(RADIANS(s_ra), RADIANS(s_dec)))"
-            )
+            statements.extend(position_index_statements(table.name, table.qualified))
         # The hierarchy's key chain is perfectly correlated (a child key
         # determines every parent key), which per-column statistics cannot
         # see. What these declare is single-table: `dependencies` sharpens a
@@ -438,6 +437,48 @@ def ddl_statements(tables: list[TableSpec], query_role: str) -> list[str]:
     statements.append(f"GRANT USAGE ON SCHEMA {schema} TO {query_role}")
     statements.append(f"GRANT SELECT ON ALL TABLES IN SCHEMA {schema} TO {query_role}")
     return statements
+
+
+def position_index_name(table_name: str) -> str:
+    """The position index's name for a table (unqualified, as indexes are)."""
+    return f"{table_name}_{geometry_backend().position_index_suffix}"
+
+
+def position_index_definition(table: str) -> str:
+    """``ON <table> ...``: the position index after its name."""
+    return f"ON {table} {geometry_backend().position_index_definition}"
+
+
+def position_statistics_statements(qualified_index: str) -> list[str]:
+    """Set the position index's statistics target, only if it is not set.
+
+    A DO block rather than a bare ALTER INDEX, which takes a lock and is DDL,
+    so that a bootstrap of an unchanged schema issues none.
+    """
+    target = geometry_backend().position_index_statistics
+    if target is None:
+        return []
+    statement = (
+        "DO $do$ BEGIN"
+        " IF (SELECT attstattarget FROM pg_attribute"
+        f" WHERE attrelid = '{qualified_index}'::regclass AND attnum = 1)"
+        f" IS DISTINCT FROM {target} THEN"
+        f" ALTER INDEX {qualified_index} ALTER COLUMN 1 SET STATISTICS {target};"
+        " END IF; END $do$"
+    )
+    return [statement]
+
+
+def position_index_statements(name: str, qualified: str) -> list[str]:
+    """The index cone searches over a table's (s_ra, s_dec) use
+    (geometry.py), and its statistics target."""
+    index = position_index_name(name)
+    # an index lives in its table's schema
+    schema = qualified.rsplit(".", 1)[0] + "." if "." in qualified else ""
+    return [
+        f"CREATE INDEX IF NOT EXISTS {index} {position_index_definition(qualified)}",
+        *position_statistics_statements(f"{schema}{index}"),
+    ]
 
 
 def _tap_datatype(sql_type: str) -> tuple[str, str | None]:

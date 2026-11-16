@@ -18,8 +18,23 @@ from typing import Any, cast
 import egernia_core.db
 import pytest
 from egernia_core import uws
+from egernia_core.config import settings
 
 JOB_KEYS = list(uws.JOB_COLUMNS)
+
+
+@pytest.fixture(autouse=True)
+def _default_geometry_backend():
+    """The unit suite asserts the default geometry backend's SQL, so each test
+    runs under it rather than under an exported TAP_GEOMETRY_BACKEND (the
+    component suite runs under either). The setting, not the environment, and
+    only for the test: services and component tests in the same session keep
+    theirs. The skycell tests switch it themselves (``skycell`` in
+    test_skycell_backend.py)."""
+    original = settings.geometry_backend
+    object.__setattr__(settings, "geometry_backend", "pgsphere")
+    yield
+    object.__setattr__(settings, "geometry_backend", original)
 
 
 class FakeColumn:
@@ -732,15 +747,15 @@ def stub_iam(monkeypatch, iam_keypair):
 
         return _Response()
 
-    # PyJWT >= 2.15 fetches the JWKS through its own no-redirect opener
-    # rather than urlopen, so the opener has to be stubbed too.
     class _Opener:
-        def open(self, url, *args, **kwargs):
-            return patched_urlopen(url)
+        def open(self, request, *args, **kwargs):
+            return patched_urlopen(request, *args, **kwargs)
 
     monkeypatch.setattr(httpx, "get", patched_get)
     monkeypatch.setattr(urllib.request, "urlopen", patched_urlopen)
-    monkeypatch.setattr(urllib.request, "build_opener", lambda *a, **k: _Opener())
+    # PyJWKClient fetches the JWKS through its own opener since PyJWT 2.14
+    # (redirects refused), not through urlopen.
+    monkeypatch.setattr(urllib.request, "build_opener", lambda *handlers: _Opener())
 
     from egernia_core.auth import reset_verifier
 

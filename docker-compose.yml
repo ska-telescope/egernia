@@ -1,6 +1,11 @@
 services:
   db:
-    build: ./db
+    build:
+      context: ./db
+      args:
+        # a skycell branch or tag to build into the image (db/Dockerfile);
+        # needed for TAP_GEOMETRY_BACKEND=skycell
+        SKYCELL_REF: ${SKYCELL_REF:-}
     # Server settings sized to this container, not the postgres image's
     # laptop defaults (128MB shared_buffers, 8 parallel workers in total):
     # a 4 GiB memory budget (what the comparison pins give it, see
@@ -54,6 +59,7 @@ services:
       TAP_DATABASE_URL: postgresql://tap:tap@db:5432/tap
       TAP_BASE_URL: http://localhost:8080/tap
       TAP_RESULTS_DIR: /results
+      TAP_GEOMETRY_BACKEND: ${TAP_GEOMETRY_BACKEND:-pgsphere}
     volumes:
       - results:/results
     ports:
@@ -70,6 +76,7 @@ services:
       TAP_DATABASE_URL: postgresql://tap:tap@db:5432/tap
       TAP_BASE_URL: http://localhost:8080/tap
       TAP_RESULTS_DIR: /results
+      TAP_GEOMETRY_BACKEND: ${TAP_GEOMETRY_BACKEND:-pgsphere}
     expose:
       - "9100"
     volumes:

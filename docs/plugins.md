@@ -156,8 +156,10 @@ document remains the way to amend everything at once.
 Data products and artifacts carry their sky footprint as an STC-S string —
 `CIRCLE`, `POLYGON` or `POSITION`, ICRS frame, degrees — validated at the
 producer by the data-model package. Text is not queryable, so at ingestion
-the service derives a pgsphere geometry into a companion column,
-`s_region_geom`, indexes it with GiST, and registers it in TAP_SCHEMA. ADQL
+the service derives a geometry into a companion column, `s_region_geom` (a
+pgsphere `spoly`, or a skycell `skyregion` under `TAP_GEOMETRY_BACKEND=skycell`
+-- see [Deployment](deployment.md#geometry-backend-pg_sphere-or-skycell)),
+indexes it with GiST, and registers it in TAP_SCHEMA. ADQL
 `INTERSECTS` and `CONTAINS` accept it wherever a region goes:
 
 ```sql
@@ -172,7 +174,7 @@ FROM srcnet.data_products
 WHERE 1 = CONTAINS(POINT('ICRS', 150.1, -30.1), s_region_geom)
 ```
 
-The conversion is shape-faithful: a `POLYGON`'s vertices are used verbatim,
+Under pg_sphere the conversion is shape-faithful: a `POLYGON`'s vertices are used verbatim,
 a `CIRCLE` becomes a 32-vertex inscribed polygon (area within 0.7%), and a
 `POSITION` becomes a 0.1-arcsecond-wide octagon so point footprints answer
 overlap queries as points — small enough to stay within SKA astrometry, and
@@ -182,7 +184,10 @@ did not. Amending `s_region` through `PATCH` re-derives the geometry in the
 same update, and a string that is not a valid region is
 refused with a 400 — at ingestion by the model's validator, at amendment by
 the service. The derived column never appears in fetched documents; it
-exists for ADQL.
+exists for ADQL. Under skycell a `CIRCLE` stays the exact circle, a
+`POSITION` becomes a 50-milliarcsecond circle, and a well-formed but
+non-convex `POLYGON` is stored as NULL, which skycell cannot hold (see
+[Deployment](deployment.md#geometry-backend-pg_sphere-or-skycell)).
 
 ## Deleting ingested metadata
 
