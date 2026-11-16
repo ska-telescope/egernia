@@ -505,7 +505,9 @@ without a measured radial velocity. From 0.35 an ADQL polygon may be
 non-convex (the ingest still refuses a non-convex `s_region`), and CENTROID is
 a polygon's centre of mass. From 0.36 a large cross-match can run
 in parallel workers, and the GiST index on a stored-region column finds the
-regions that contain a position in about 0.57 of pgSphere's time.
+regions that contain a position in about 0.57 of pgSphere's time on x86
+(0.75 to 0.93 on an Apple M3), as measured in the Performance section of
+[skycell's README](https://github.com/jesusjuansalgado/skycell#performance).
 
 ```bash
 # a release tag (or a commit): the build is reproducible, and the commit is
@@ -550,7 +552,8 @@ What differs under skycell:
   motion or radial velocity is taken as the catalogue says (skycell 0.32).
   A function that returns a position is a POINT wherever ADQL takes one — in
   `CONTAINS`, `INTERSECTS`, `DISTANCE` or as a `CIRCLE` centre — and
-  `[ra, dec]` in the select list. A propagated position cannot use the position index, so write
+  `[ra, dec]` in the select list (selected in a subquery it stays a position,
+  so the outer query can test it). A propagated position cannot use the position index, so write
   a proper-motion search as an indexed cone widened by the largest motion of
   interest, and the propagated test beside it:
 

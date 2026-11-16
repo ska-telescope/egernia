@@ -55,8 +55,22 @@ jobs:
           fail_ci_if_error: false
 
   component:
-    name: Component tests (PyVO vs IVOA TAP)
+    # the pg_sphere leg keeps the bare name: it is a required status check
+    name: Component tests (PyVO vs IVOA TAP)${{ matrix.label }}
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - backend: pgsphere
+            label: ""
+            skycell_ref: ""
+          - backend: skycell
+            label: " (skycell)"
+            # skycell v0.36, by commit so the build is reproducible
+            skycell_ref: 3327ff624faed849dd35b39223e6682aca645ef2
+    env:
+      TAP_GEOMETRY_BACKEND: ${{ matrix.backend }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -65,17 +79,20 @@ jobs:
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
-          cache-suffix: component
+          cache-suffix: component-${{ matrix.backend }}
       # Run the database from the image the project ships, so the component
       # tests and the deployed tap-db can never drift apart on the server
       # major or the pgsphere build. Only the psql client comes from apt (the
       # component fixtures shell out to it to load db/init/*.sql).
       - name: Start the tap-db image
+        env:
+          SKYCELL_REF: ${{ matrix.skycell_ref }}
         run: |
           sudo systemctl stop postgresql || true
           sudo apt-get update
           sudo apt-get install -y postgresql-client
-          docker build -t egernia-ci/tap-db:ci db
+          # an empty SKYCELL_REF builds the image without skycell
+          docker build --build-arg SKYCELL_REF="$SKYCELL_REF" -t egernia-ci/tap-db:ci db
           docker run -d --name tap-db-ci \
             -e POSTGRES_USER=tap -e POSTGRES_PASSWORD=tap -e POSTGRES_DB=tap \
             -p 5432:5432 egernia-ci/tap-db:ci

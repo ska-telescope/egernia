@@ -316,6 +316,22 @@ def test_a_position_function_in_the_select_list_is_ra_dec_like_a_point():
     )
 
 
+def test_a_position_function_in_a_nested_query_stays_a_position():
+    # the outer query tests it as a position; as [ra, dec] it could not
+    assert sql(
+        f"SELECT s.id FROM (SELECT id, {_PROP} AS p FROM t) AS s"
+        " WHERE 1 = CONTAINS(s.p, CIRCLE('ICRS', 10, 20, 0.5))"
+    ) == (
+        "SELECT s.id FROM (SELECT id,"
+        " ivo_epoch_prop_pos(ra, dec, plx, pmra, pmdec, rv, 2016, 2026) AS p FROM t) AS s"
+        " WHERE contains(s.p, skycell_circle(10.0, 20.0, 0.5)) = 1;"
+    )
+    # a subquery elsewhere in the query does not make its own select list nested
+    assert sql(f"SELECT {_PROP} FROM t WHERE id IN (SELECT id FROM u)").startswith(
+        "SELECT ARRAY[coord1(ivo_epoch_prop_pos("
+    )
+
+
 def test_other_user_functions_pass_through():
     # not a position: a number or an array, already what a client expects;
     # and a position inside an expression is left to that expression

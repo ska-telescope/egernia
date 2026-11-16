@@ -33,7 +33,9 @@ translation is close to the identity:
 - AREA becomes ``area()``, already in square degrees;
 - a declared user function that returns a position (geometry.py: ivo_epoch_prop_pos,
   ivo_healpix_center) is a POINT wherever ADQL takes one -- CONTAINS,
-  INTERSECTS, DISTANCE, a CIRCLE centre -- and ``[ra, dec]`` in the select list;
+  INTERSECTS, DISTANCE, a CIRCLE centre -- and ``[ra, dec]`` in the select list
+  of the query itself (in a nested query it stays a position, for the outer
+  query to test);
 - COORD1, COORD2 and CENTROID pass through untranslated, as they do for
   pg_sphere -- but under skycell they name its own functions and work. A
   column they take is recorded as a geometry column, like one in CONTAINS or
@@ -108,6 +110,14 @@ def _bare_select_item(ctx):
         ctx = ctx.parentCtx
     parent = ctx.parentCtx
     return parent if isinstance(parent, ADQLParser.Derived_columnContext) else None
+
+
+def _is_nested(ctx):
+    """Whether ctx sits in a query nested in another one: a derived table or
+    a subquery of a predicate (the translator refuses WITH)."""
+    while ctx is not None and not isinstance(ctx, ADQLParser.SubqueryContext):
+        ctx = ctx.parentCtx
+    return ctx is not None
 
 
 def _position(ra, dec):
@@ -336,8 +346,14 @@ class SkycellFunctionsTranslationVisitor(ADQLFunctionsTranslationVisitor):
                 ctx.children = [ctx.getChild(1)]
                 self.contexts[ctx] = text
         # a position-valued user function in the select list is a POINT
-        # there too, [ra, dec], where skycell would print its own text form
-        elif name.lower() in _POSITION_FUNCTIONS and _bare_select_item(ctx) is not None:
+        # there too, [ra, dec], where skycell would print its own text form.
+        # In a nested query it stays a position, so that the outer query can
+        # still test it: CONTAINS(s.p, CIRCLE(...)) over a derived table s.
+        elif (
+            name.lower() in _POSITION_FUNCTIONS
+            and _bare_select_item(ctx) is not None
+            and not _is_nested(ctx)
+        ):
             position = _sql(ctx, self.contexts)
             text = _aliased(
                 f"ARRAY[coord1({position}), coord2({position})]",

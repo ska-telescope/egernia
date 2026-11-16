@@ -134,6 +134,18 @@ def test_a_cone_search_on_propagated_positions(tap_service):
         )
         == []
     )
+    # propagated once in a derived table and tested outside it: the position
+    # stays a position there
+    assert (
+        _rows(
+            tap_service,
+            "SELECT s.source_id FROM (SELECT source_id,"
+            " ivo_epoch_prop_pos(ra, dec, 0, 0, 2016, 2026) AS p"
+            " FROM ska.continuum_sources) AS s"
+            f" WHERE 1 = CONTAINS(s.p, {cone}) ORDER BY s.source_id",
+        )
+        == here
+    )
 
 
 def test_healpix_index_and_centre_are_inverse(tap_service):
