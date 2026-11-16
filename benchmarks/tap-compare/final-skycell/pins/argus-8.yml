@@ -1,0 +1,39 @@
+# CADC argus at the 8 CPU / 8 GiB tier (../PROTOCOL.md).
+#
+# The cpuset: at tier 8 argus sits beside egernia (0-7) and DaCHS (16-23) so
+# the three interleave; at 16 and 24 it is measured alone and takes the low
+# cores. It never shares a cpuset with another target — Tomcat keeps draining
+# its queue for up to ~75 s after the generator leaves
+# (argus-equal-cpu/PROTOCOL.md, amendment 1).
+#
+# Memory holds the tier-8 split as a proportion — 3/8 Tomcat, 5/8 PostgreSQL —
+# so every tier gives argus the same shape. Its JVM keeps the vendor default
+# (-Xms512m -Xmx2048m) at every tier, because that is what the image ships and
+# the fairness rule forbids tuning it: above tier 8 the Tomcat container's
+# extra memory is therefore unused, which is a property of the vendor
+# deployment and is reported as one.
+#
+# PostgreSQL follows docs/postgres-performance.md on its own 5 GiB share:
+# shared_buffers 1/4 = 1280MB, effective_cache_size 3/4 = 3840MB, and the
+# parallel budget egernia's database gets at this tier (32/40).
+#
+#   docker compose -f benchmarks/tap-compare/docker-compose.argus.yml \
+#       -f benchmarks/tap-compare/scaling-three-way/pins/argus-8.yml \
+#       up -d --no-build --force-recreate
+services:
+  argus:
+    cpuset: "8-15"
+    mem_limit: 3g
+  argus-db:
+    cpuset: "8-15"
+    mem_limit: 5g
+    command:
+      - postgres
+      - -c
+      - shared_buffers=1280MB
+      - -c
+      - effective_cache_size=3840MB
+      - -c
+      - max_parallel_workers=32
+      - -c
+      - max_worker_processes=40

@@ -1,0 +1,39 @@
+# The backend A/B's second egernia (../PROTOCOL.md, "Experiment 1"): the same
+# images, the same phase-A shape (egernia-w1.yml's budget, one API worker),
+# on pg_sphere, under its own compose project and volume so it never touches
+# the skycell stack's data:
+#
+#   docker compose -p egernia-pgs -f docker-compose.yml \
+#       -f benchmarks/tap-compare/final-skycell/pins/egernia-ab-pgsphere.yml \
+#       up -d --no-build db tap-api tap-executor
+#
+# Only the cpuset (8-15, argus's cores in the three-way phases, idle during
+# the A/B), the host ports, the advertised base URL and the images differ
+# from egernia-w1.yml. The
+# images are named explicitly because a second compose project would
+# otherwise look for images of its own name.
+services:
+  db:
+    image: egernia-db
+    cpuset: "8-15"
+    mem_limit: 4g
+    ports: !override
+      - "15432:5432"
+  tap-api:
+    image: egernia-tap-api
+    cpuset: "8-15"
+    mem_limit: 2g
+    ports: !override
+      - "18080:8080"
+    environment:
+      TAP_API_WORKERS: "1"
+      TAP_GEOMETRY_BACKEND: pgsphere
+      # VOSI documents advertise this, so it follows the host port
+      TAP_BASE_URL: http://localhost:18080/tap
+  tap-executor:
+    image: egernia-tap-executor
+    cpuset: "8-15"
+    mem_limit: 2g
+    environment:
+      TAP_GEOMETRY_BACKEND: pgsphere
+      TAP_BASE_URL: http://localhost:18080/tap
