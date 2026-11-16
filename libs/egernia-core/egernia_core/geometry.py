@@ -67,6 +67,15 @@ class GeometryBackend:
     # the IVOA user-defined functions the extension implements
     user_functions: tuple[UserFunction, ...] = ()
 
+    def callable_functions(self) -> frozenset[str]:
+        """The (lower-case) names a query may call where ADQL's grammar takes
+        a user-defined function: the declared user functions, and the declared
+        geometry functions the grammar has no rule of its own for (COORD1,
+        COORD2, CENTROID). Any other name is refused (query/adql.py)."""
+        return frozenset(
+            {f.name for f in self.user_functions} | {f.lower() for f in self.adql_geometry_forms}
+        )
+
     def position_functions(self) -> frozenset[str]:
         """The (lower-case) names of the user functions that return a POINT."""
         return frozenset(f.name for f in self.user_functions if f.returns_point)

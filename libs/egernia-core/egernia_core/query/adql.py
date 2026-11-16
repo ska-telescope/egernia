@@ -10,6 +10,7 @@ ADQL geometry (POINT/CIRCLE/CONTAINS/...) is translated for the extension
 so the PostgreSQL backend needs that extension installed.
 """
 
+import itertools
 import logging
 import threading
 from dataclasses import dataclass
@@ -102,6 +103,9 @@ class _Translator(ADQLQueryTranslator):
     succeeds outright.
     """
 
+    #: the (lower-case) names a query may call as user-defined functions
+    declared_functions: frozenset[str] = frozenset()
+
     def set_query(self, query):
         # Deliberately does not parse: to_postgresql() does, and the base
         # class's eager parse here is discarded a moment later.
@@ -125,6 +129,7 @@ class _Translator(ADQLQueryTranslator):
             log.debug("ADQL fast parse fell back to full context: %s", exc)
             super().parse()
             ADQL_SLOW_PARSES.inc()
+        self._refuse_undeclared_functions()
 
     def _parse_sll(self):
         stream = antlr4.CommonTokenStream(ADQLLexer(antlr4.InputStream(self.query)))
@@ -148,6 +153,28 @@ class _Translator(ADQLQueryTranslator):
         self.syntax_error_listener = listener
         self.tree = tree
         self.walker = antlr4.ParseTreeWalker()
+
+    def _refuse_undeclared_functions(self) -> None:
+        """Refuse a call of a function the capabilities do not declare.
+
+        The grammar takes any name followed by a parenthesis as a
+        user-defined function and the translation prints it as written, so
+        without this every function the query role may execute is callable:
+        ``pg_sleep``, ``set_config``, ``version``. Read from the tokens, where
+        an identifier before ``(`` is such a call and nothing else, rather
+        than from the tree, which the translation prunes as it goes.
+        """
+        tokens = [t for t in self.stream.tokens if t.channel == antlr4.Token.DEFAULT_CHANNEL]
+        for token, following in itertools.pairwise(tokens):
+            if (
+                token.type == ADQLLexer.ID
+                and following.type == ADQLLexer.LPAREN
+                and token.text.lower() not in self.declared_functions
+            ):
+                raise QueryError(
+                    f"unknown function {token.text}: only the functions the"
+                    " capabilities declare can be called"
+                )
 
 
 class _TableCollector(ADQLParserListener):
@@ -202,6 +229,7 @@ def _translated(query: str, backend: str) -> Translation:
     _outcome.hit = False
     try:
         translator = _Translator(query)
+        translator.declared_functions = geometry.BACKENDS[backend].callable_functions()
         sql = translator.to_postgresql(*GEOMETRY_VISITORS[backend])
     except QuerySyntaxError as exc:
         detail = "; ".join(str(e) for e in exc.syntax_errors) or str(exc)
