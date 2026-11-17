@@ -1,0 +1,126 @@
+# The skycell rerun's scenarios (PROTOCOL.md). `corpus`, `mix`, `guards`,
+# `final`, `warm` and `final-smoke` are final/scenarios.yaml's verbatim;
+# `scaling3-skycell` and `scaling3-skycell-smoke` are
+# scaling-three-way/scenarios.yaml's `scaling3` and `scaling3-smoke`,
+# renamed only so the publisher points at this protocol (its `warm` is
+# byte-identical to final's). Only `backend-ab` and `backend-ab-smoke` are
+# new. tests/test_final_skycell.py asserts the copies.
+corpus:
+  seed: 424242
+  combinations: 400
+  projects: 3906
+
+mix:
+  Q01: 1
+  Q02: 3
+  Q03: 3
+  Q04: 2
+  Q05: 5
+  Q06: 2
+  Q07: 2
+  Q10: 1
+
+scenarios:
+  # The final grid, run once per phase over three interleaved targets:
+  # per-class + mix, both cross-server formats, four concurrencies, 3
+  # repetitions, the scaling protocol's 20 s warm-up and 60 s windows.
+  # 3 targets x 12 classes x 2 formats x 4 concurrencies x 3 repetitions
+  #   = 864 rungs per phase (PROTOCOL.md, "The grid and its wall-clock").
+  final:
+    ladder: [1, 4, 8, 32]
+    warmup_seconds: 20
+    measure_seconds: 60
+    repetitions: 3
+    response_formats: [votable, csv]
+    maxrec: 100000
+    # six processes on the six host cores no server stack uses (24-29): the
+    # 60% single-core guard has to hold at phase B's throughput, and four
+    # processes ran at 0.50 of a core for argus's 555 rps
+    # (docs/performance/20260906T145338Z-7aa14f6a-tap-compare).
+    generator_processes: 6
+    per_class: true
+
+  # An untimed mixed-workload pass after a stack is (re)started, so the
+  # first measured repetition does not pay for a cold shared_buffers.
+  # Its results directory is discarded. scaling/scenarios.yaml's verbatim.
+  warm:
+    ladder: [8]
+    warmup_seconds: 0
+    measure_seconds: 45
+    repetitions: 1
+    response_formats: [csv]
+    maxrec: 100000
+    generator_processes: 6
+
+  # The driver's shake-out: proves the three stacks, the three-way gates,
+  # the interleaving and the publisher end to end. Measures nothing.
+  final-smoke:
+    ladder: [2]
+    warmup_seconds: 2
+    measure_seconds: 6
+    repetitions: 1
+    response_formats: [csv]
+    maxrec: 100000
+    generator_processes: 1
+
+  # The scaling grid, run once per server per tier. It feeds a *figure*, not
+  # a table, so it is deliberately narrow: the mixed workload plus four
+  # classes that span the cost structures (Q01 API-bound metadata, Q05
+  # indexed geometry, Q11 wide result, Q13 aggregate), both cross-server
+  # formats, two concurrencies, 3 repetitions. The driver passes
+  # `--classes Q01 Q05 Q11 Q13 mix`, so 5 x 2 x 2 x 3 = 60 rungs per
+  # server-tier (PROTOCOL.md, "The grid and its wall-clock").
+  #
+  # The ladder stops at 32 because c=64 buys nothing: in the published
+  # scaling run c=64 came in 4-6% *below* c=32 at every tier for both
+  # servers, so 32 already saturates even a 24-core stack.
+  scaling3-skycell:
+    ladder: [8, 32]
+    warmup_seconds: 20
+    measure_seconds: 60
+    repetitions: 3
+    response_formats: [votable, csv]
+    maxrec: 100000
+    # six processes on the six host cores no tier's servers use (24-29)
+    generator_processes: 6
+    per_class: true
+
+  # The driver's shake-out: proves the per-tier pins, the gates, the records
+  # and the publisher end to end. Measures nothing.
+  scaling3-skycell-smoke:
+    ladder: [2]
+    warmup_seconds: 2
+    measure_seconds: 6
+    repetitions: 1
+    response_formats: [csv]
+    maxrec: 100000
+    generator_processes: 1
+
+  # Experiment 1, the backend A/B: egernia on pg_sphere against egernia on
+  # skycell, same build, same phase-A shape, interleaved. The final grid's
+  # rung shape and ladder; the driver passes
+  # `--classes Q03 Q05 Q06 Q07 Q12 Q13 mix`, so
+  # 2 targets x 7 classes x 2 formats x 4 concurrencies x 3 repetitions
+  #   = 336 rungs (PROTOCOL.md, "Experiment 1").
+  backend-ab:
+    ladder: [1, 4, 8, 32]
+    warmup_seconds: 20
+    measure_seconds: 60
+    repetitions: 3
+    response_formats: [votable, csv]
+    maxrec: 100000
+    generator_processes: 6
+    per_class: true
+
+  # ab.sh's shake-out. Measures nothing.
+  backend-ab-smoke:
+    ladder: [2]
+    warmup_seconds: 2
+    measure_seconds: 6
+    repetitions: 1
+    response_formats: [csv]
+    maxrec: 100000
+    generator_processes: 1
+
+guards:
+  generator_cpu_max_fraction: 0.6

@@ -1,0 +1,23 @@
+# The one change this protocol makes to egernia (../PROTOCOL.md): ADQL
+# geometry is translated for skycell instead of pg_sphere. Layered on top of
+# every egernia pins file here, in every experiment, by every driver:
+#
+#   docker compose -p egernia -f docker-compose.yml -f <pins>.yml \
+#       -f benchmarks/tap-compare/final-skycell/pins/skycell.yml ...
+#
+# Both query-serving containers read the variable (the executor translates
+# nothing, but its bootstrap checks the footprint column's type), so both
+# get it. The db image must have been built with skycell in it:
+#
+#   SKYCELL_REF=0d998bd928e026da05631e6f0e9b3b6dbab7570d \
+#       docker compose -p egernia build db tap-api tap-executor
+#
+# (skycell v0.58). The drivers verify the skycell commit and extension version, the
+# footprint column's type and the cone index before anything is timed.
+services:
+  tap-api:
+    environment:
+      TAP_GEOMETRY_BACKEND: skycell
+  tap-executor:
+    environment:
+      TAP_GEOMETRY_BACKEND: skycell
