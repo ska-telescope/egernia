@@ -97,6 +97,7 @@ fail() { log "FAIL $*"; exit 1; }
 expect() { [ "$2" = "$3" ] || fail "$1: got '$2', expected '$3'"; }
 # shellcheck source=backend.sh
 . "$HERE/backend.sh"
+trap stop_and_keep_logs EXIT INT TERM  # amendment 2
 
 tap() {
     (cd "$REPO" && taskset -c "$GEN_CPUS" uv run --group tap-compare \
@@ -222,6 +223,7 @@ up_dachs() {
             "$(awk -v s=$setting '$1 == s {print $3}' "$HERE/pins/dachs-postgres.conf")"
     done
     check_cpuset $DACHS_CPUSET $DACHS_CONTAINERS
+    clear_dachs_jobs  # amendment 2
 }
 
 up_argus() {
@@ -386,7 +388,8 @@ for target in $TARGETS; do
 done
 
 log "PROGRESS phase=$PHASE step=measure run=$RUN_NAME"
-tap compare --targets $TARGETS --scenario "$SCENARIO" --resume "$RUN_NAME"
+tap compare --targets $TARGETS --scenario "$SCENARIO" --resume "$RUN_NAME" \
+    --abort-error-fraction "$ABORT_ERROR_FRACTION"
 
 if [ "$RESTORE" != 1 ]; then
     log "PROGRESS phase=$PHASE step=stop"

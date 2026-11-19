@@ -66,3 +66,49 @@ print(" ".join(sorted(set(gates["agreement"]["disagreed"]) & set(sys.argv[2:])))
         "($gates) - a skycell correctness finding; nothing is measured (PROTOCOL.md)"
     log "PROGRESS cone classes agree ($CONE_CLASSES)"
 }
+
+# -- amendment 2 -------------------------------------------------------------
+# DaCHS records every request, sync included, as a UWS job in its own
+# database (tap_schema.tapjobs, on a volume). Rows a dead request left
+# EXECUTING outlive the container and fill the async run slots, so taplint's
+# async check queues forever (the first scaling attempt, 2026-11-19). Each
+# DaCHS bring-up starts from an empty job table, as argus's already does.
+clear_dachs_jobs() {
+    docker exec tap-compare-dachs-1 su postgres -c \
+        "psql -Atc 'delete from tap_schema.tapjobs' gavo" > /dev/null
+    expect "dachs job table" "$(docker exec tap-compare-dachs-1 su postgres -c \
+        "psql -Atc 'select count(*) from tap_schema.tapjobs' gavo")" 0
+}
+
+# The evidence a stopped measurement leaves: every server's logs, DaCHS's own
+# log files and its postgres log, which die with the container on the next
+# --force-recreate (they did on 2026-11-19).
+dump_server_logs() {
+    local dir=$1 c
+    mkdir -p "$dir"
+    for c in $(docker ps --format '{{.Names}}' | grep -E '^(egernia|egernia-pgs|tap-compare)-'); do
+        docker logs --timestamps "$c" > "$dir/$c.log" 2>&1 || true
+    done
+    if docker ps --format '{{.Names}}' | grep -qx tap-compare-dachs-1; then
+        docker cp tap-compare-dachs-1:/var/gavo/logs "$dir/dachs-gavo-logs" > /dev/null 2>&1 || true
+        docker cp tap-compare-dachs-1:/var/log/postgresql "$dir/dachs-postgresql" > /dev/null 2>&1 || true
+        docker exec tap-compare-dachs-1 su postgres -c \
+            "psql -Atc 'select jobid, phase, starttime from tap_schema.tapjobs' gavo" \
+            > "$dir/dachs-tapjobs.txt" 2>&1 || true
+    fi
+    log "PROGRESS server logs saved to $dir"
+}
+
+# A rung over this error fraction stops the run (compare --abort-error-fraction):
+# a server that has stopped answering is a finding, not a measurement.
+ABORT_ERROR_FRACTION=0.5
+
+# The EXIT trap of experiments 2 and 3: the sampler stops as before, and a
+# run that stops after its gates began keeps every server's logs.
+stop_and_keep_logs() {
+    local rc=$?
+    stop_sampler
+    if [ "$rc" != 0 ] && [ -n "${RUN_NAME:-}" ]; then
+        dump_server_logs "$SUITE/results/$RUN_NAME/logs"
+    fi
+}

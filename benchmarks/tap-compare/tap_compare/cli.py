@@ -459,6 +459,20 @@ def cmd_compare(args: argparse.Namespace) -> int:
                             generator_guard_ok=recorder.generator_cpu_peak < guard_max,
                             **({"tier": args.tier} if args.tier else {}),
                         )
+                        if (
+                            args.abort_error_fraction is not None
+                            and summary["error_fraction"] > args.abort_error_fraction
+                        ):
+                            _abort_failing_rung(
+                                run,
+                                key,
+                                summary,
+                                target,
+                                entries,
+                                query_class,
+                                response_format,
+                                scenario["maxrec"],
+                            )
                         if recorder.generator_cpu_peak >= guard_max:
                             run.invalidate(
                                 "generator ran hot",
@@ -472,6 +486,35 @@ def cmd_compare(args: argparse.Namespace) -> int:
     run.write_json("summary.json", rows)
     log.info("comparison complete: %s (%d rung summaries)", run.path, len(rows))
     return 0
+
+
+def _abort_failing_rung(
+    run, key, summary, target, entries, query_class, response_format, maxrec
+) -> None:
+    """Stop on a server that has stopped answering, keeping the evidence.
+
+    The samples record a status, not the body, so one probe of the rung's
+    first query captures what the server is saying. The rung's summary goes
+    to aborted/, not summaries/, and it is not marked done.
+    """
+    import httpx
+
+    entry = next(e for e in entries if query_class in (None, e.query_class))
+    data = {"LANG": "ADQL", "QUERY": entry.adql, "RESPONSEFORMAT": response_format}
+    if maxrec is not None:
+        data["MAXREC"] = str(maxrec)
+    try:
+        response = httpx.post(f"{target.base_url}/sync", data=data, timeout=60)
+        probe = {"status": response.status_code, "body": response.text[:4000]}
+    except Exception as exc:  # the probe is evidence, never a second failure
+        probe = {"error": f"{type(exc).__name__}: {exc}"}
+    run.write_json(
+        f"aborted/{key}.json", {"summary": summary, "probe": {"adql": entry.adql, **probe}}
+    )
+    raise SystemExit(
+        f"rung {key}: error fraction {summary['error_fraction']:.3f} over the abort ceiling; "
+        f"stopping (probe in {run.path / 'aborted' / (key + '.json')})"
+    )
 
 
 def cmd_publish(args: argparse.Namespace) -> int:
@@ -546,6 +589,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     compare_parser.add_argument(
         "--gates-only", action="store_true", help="run (or reuse) the gates, then stop"
+    )
+    compare_parser.add_argument(
+        "--abort-error-fraction",
+        type=float,
+        metavar="F",
+        help="stop the run when a rung's error fraction exceeds F, recording one "
+        "probe response; the rung is not marked done, so --resume re-measures it",
     )
     compare_parser.set_defaults(func=cmd_compare)
 
