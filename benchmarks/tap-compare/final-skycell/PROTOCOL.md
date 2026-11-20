@@ -3,7 +3,8 @@
 Frozen before any measurement at tag `tap-compare-final-skycell-prereg-v1`,
 amended once before measurement (Amendment 1, tag
 `tap-compare-final-skycell-prereg-v2`) and once after DaCHS failed during
-phase B (Amendment 2, tag `tap-compare-final-skycell-prereg-v3`).
+phase B (Amendment 2, tag `tap-compare-final-skycell-prereg-v3`) and once
+when its cause was found (Amendment 3, tag `tap-compare-final-skycell-prereg-v4`).
 Three experiments, one directory. Two of them are existing protocols run
 again with **one** change to egernia; the third is new and isolates that
 change. Everything not stated here is the base protocol's, unchanged:
@@ -343,3 +344,82 @@ it is, and this amendment is tagged `tap-compare-final-skycell-prereg-v3`.
 Nothing about the workload, grids, gates, statistics, hypotheses or pins
 changes. `tests/test_final_skycell.py` covers each point: the abort helper is
 tested against a stubbed HTTP call, and the drivers by reading them.
+
+## Amendment 3: DaCHS serves as `gavo`, and phase B is resumed (after measurement began)
+
+Registered after amendment 2's guard stopped the second phase B attempt, and
+before anything here was measured again. Tagged
+`tap-compare-final-skycell-prereg-v4`.
+
+**What happened.** The second phase B attempt
+(`20261119T203938Z-19e19fcb-tap-compare`) measured 358 rungs with no errors
+on any server. At 2026-11-20T04:59:08Z, in DaCHS's Q11 VOTable c=32 r3
+rung, DaCHS failed exactly as before. The guard stopped the run at that
+rung (error fraction 0.995) and kept the evidence (`aborted/`, `logs/`). The
+probe's body read "Cannot connect to the database server".
+
+**The cause, from those logs and DaCHS 2.11's source.**
+
+1. A sync TAP query runs as a UWS job that DaCHS marks `EXECUTING` with
+   `pid=-1` (`gavo/protocols/taprunner.py`, `runSyncTAPJob`, whose
+   docstring says a sync job must never carry a real pid).
+2. Under load, the job-table update that ends such a job hit PostgreSQL's
+   statement timeout. The postgres log shows two such timeouts at
+   04:59:08.764, both on `UPDATE tap_schema.tapjobs`. The job therefore
+   stays `EXECUTING`.
+3. The sync path's `finally` destroys the job. `TAPJob.prepareForDestruction`
+   (`gavo/protocols/tap.py`) then calls `os.kill(self.pid, SIGTERM)` for an
+   `EXECUTING` job. Unlike `killJob`, it has no `pid<2` guard, so this is
+   `kill(-1, SIGTERM)`.
+4. In this image DaCHS ran as root, as PID 1. `kill(-1)` from root signals
+   every other process in the container. PostgreSQL logged "received smart
+   shutdown request" at 04:59:08.807, and every backend "terminating
+   connection due to administrator command".
+5. DaCHS survives (the kernel never delivers `kill(-1)` to PID 1), so the
+   container never restarts. Every later request fails to reach the
+   database, and the jobs in flight stay `EXECUTING`. The first failure
+   (00:37Z on 2026-11-19) matches this in every detail that survived.
+
+This is a DaCHS defect on a failure path, made fatal by how this
+benchmark's container ran DaCHS. It is not a property of the workload.
+
+**The change.** DaCHS serves as the unprivileged `gavo` user, as the
+Debian package runs it in production.
+
+- `pins/dachs-as-gavo.yml` is layered onto every DaCHS compose call of
+  experiments 2 and 3. It runs `pins/dachs-as-gavo.sh`: the image's own
+  `/entrypoint.sh` with only its last line changed, to
+  `exec setpriv --reuid=gavo --regid=gavo --init-groups dachs serve debug`.
+  The script refuses to start if that line is not found.
+- PostgreSQL is started as before. The image, DaCHS's version, its
+  configuration and its database are unchanged.
+- The drivers check that PID 1 is `dachs serve debug` running as `gavo`
+  (`check_dachs_user`) before clearing the job table.
+- Verified on the idle box: DaCHS serves sync (a 1.9 MB VOTable) and async
+  (COMPLETED in 3 s). After `os.kill(-1, SIGTERM)` is called as `gavo`,
+  PostgreSQL's nine processes are still up and DaCHS still answers.
+- The original trigger, a job-table update timing out, can still happen.
+  It now costs that one request an error rather than the server. Such
+  errors are counted and judged by the 1% ceiling like any other.
+
+**Phase B is resumed, not restarted.** Decided by the project lead and recorded here.
+
+- The stopped run continues under its own name with `RUN_NAME` set. The
+  harness skips the 358 rungs marked done, and re-measures the aborted rung
+  (never marked done) and everything after it, in the registered order.
+- The gates recorded at the start of the run are reused. The change
+  affects which user DaCHS runs as, not what it returns.
+- The pin records of the first segment are kept under `pins/segment-1/`
+  before the resumed driver writes its own.
+- What this trades away: rungs before and after 04:59Z ran DaCHS under
+  different users and on two container lifetimes. Nothing in a measured
+  request's path differs between them; only the failure path does. The
+  published report states the split, the rung it falls at, and both
+  segments' pin records.
+- Experiment 3 then runs in full, with DaCHS as `gavo` throughout.
+- Phase A (DaCHS as root, no failure) stands as measured. Its report
+  carries the same note.
+
+`tests/test_final_skycell.py` covers the overlay on every DaCHS compose
+call, the user check's place in `up_dachs`, and that the wrapper changes
+exactly one line of the image's entrypoint.

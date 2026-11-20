@@ -117,7 +117,7 @@ compose_egernia() {
 }
 compose_dachs() {
     docker compose -p "$SUITE_PROJECT" -f "$SUITE/docker-compose.dachs.yml" \
-        -f "$HERE/pins/dachs-$1.yml" "${@:2}"
+        -f "$HERE/pins/dachs-$1.yml" -f "$HERE/pins/dachs-as-gavo.yml" "${@:2}"
 }
 compose_argus() {
     docker compose -p "$SUITE_PROJECT" -f "$SUITE/docker-compose.argus.yml" \
@@ -218,6 +218,7 @@ up_dachs() {
             "$(awk -v s=$setting '$1 == s {print $3}' "$HERE/pins/dachs-postgres-$tier.conf")"
     done
     check_cpuset "$(cpuset_of "$HERE/pins/dachs-$tier.yml")" $DACHS_CONTAINERS
+    check_dachs_user  # amendment 3
     clear_dachs_jobs  # amendment 2
 }
 

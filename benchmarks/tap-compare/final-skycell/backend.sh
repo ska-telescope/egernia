@@ -112,3 +112,13 @@ stop_and_keep_logs() {
         dump_server_logs "$SUITE/results/$RUN_NAME/logs"
     fi
 }
+
+# -- amendment 3 -------------------------------------------------------------
+# DaCHS must serve as `gavo`, never root (pins/dachs-as-gavo.sh): as root, its
+# os.kill(-1, SIGTERM) on a timed-out sync job shuts PostgreSQL down.
+check_dachs_user() {
+    expect "dachs serving user" \
+        "$(docker exec tap-compare-dachs-1 ps -o user= -p 1 | tr -d ' ')" gavo
+    expect "dachs serving command" \
+        "$(docker exec tap-compare-dachs-1 ps -o args= -p 1)" "/usr/bin/python3 /usr/bin/dachs serve debug"
+}
