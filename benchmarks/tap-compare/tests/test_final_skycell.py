@@ -33,7 +33,7 @@ def _yaml(path: pathlib.Path) -> dict:
 
 
 def test_every_borrowed_pins_file_is_a_byte_copy():
-    own = {"skycell.yml", "egernia-ab-pgsphere.yml"}
+    own = {"skycell.yml", "egernia-ab-pgsphere.yml", "dachs-as-gavo.yml", "dachs-as-gavo.sh"}
     borrowed = sorted(p.name for p in (HERE / "pins").iterdir() if p.name not in own)
     sources = {
         p.name: p for d in ("final", "scaling-three-way") for p in (SUITE / d / "pins").iterdir()
@@ -231,3 +231,124 @@ def test_smoke_scenarios_are_driven_over_the_mix_only():
 def test_the_pgsphere_reproduction_starts_no_second_prometheus():
     command = publish.STACKS["egernia-ab-pgsphere"][1]
     assert command.rstrip().endswith("up -d db tap-api tap-executor")
+
+
+# -- amendment 2: DaCHS stopped answering mid phase B ------------------------
+
+MEASURERS = ("run.sh", "scaling.sh")  # experiments 2 and 3; the A/B is done
+
+
+def test_every_dachs_bringup_starts_from_an_empty_job_table():
+    for name in MEASURERS:
+        (body,) = re.findall(r"up_dachs\(\) \{\n(.*?)\n\}", (HERE / name).read_text(), re.S)
+        assert body.rstrip().endswith("clear_dachs_jobs  # amendment 2"), name
+    assert "delete from tap_schema.tapjobs" in (HERE / "backend.sh").read_text()
+
+
+def test_every_measuring_compare_carries_the_abort_ceiling():
+    assert "ABORT_ERROR_FRACTION=0.5" in (HERE / "backend.sh").read_text()
+    for name in MEASURERS:
+        calls = re.findall(r"^\s*tap compare .*?(?<!\\)\n", (HERE / name).read_text(), re.S | re.M)
+        measuring = [c for c in calls if "--gates-only" not in c]
+        assert measuring, name
+        for call in measuring:
+            assert '--abort-error-fraction "$ABORT_ERROR_FRACTION"' in call, (name, call)
+
+
+def test_a_stopped_run_keeps_its_servers_logs():
+    for name in MEASURERS:
+        text = (HERE / name).read_text()
+        sourced = text.index('. "$HERE/backend.sh"')
+        trap = text.index("trap stop_and_keep_logs EXIT INT TERM")
+        assert sourced < trap < text.index("--gates-only"), name
+
+
+class _Run:
+    def __init__(self, path):
+        self.path = path
+
+    def write_json(self, name, payload):
+        (self.path / name).parent.mkdir(parents=True, exist_ok=True)
+        (self.path / name).write_text(json.dumps(payload))
+
+
+def test_a_failing_rung_stops_the_run_with_a_probe(tmp_path, monkeypatch):
+    import httpx
+    import pytest
+    from tap_compare import cli
+    from tap_compare.corpus import CorpusEntry
+    from tap_compare.targets import Target
+
+    sent = {}
+
+    def post(url, data, timeout):
+        sent.update(url=url, data=data)
+        return httpx.Response(500, text="<VOTABLE>pool exhausted</VOTABLE>")
+
+    monkeypatch.setattr(httpx, "post", post)
+    entries = [CorpusEntry("a", "Q01", "SELECT 1"), CorpusEntry("b", "Q11", "SELECT 11")]
+    target = Target("dachs-final", "dachs", "http://localhost:8081/tap")
+    summary = {"error_fraction": 1.0, "requests": 10}
+    with pytest.raises(SystemExit, match="over the abort ceiling"):
+        cli._abort_failing_rung(
+            _Run(tmp_path),
+            "dachs-final-votable-Q11-c8-r3",
+            summary,
+            target,
+            entries,
+            "Q11",
+            "votable",
+            10000,
+        )
+    assert sent["url"] == "http://localhost:8081/tap/sync"
+    assert sent["data"]["QUERY"] == "SELECT 11" and sent["data"]["MAXREC"] == "10000"
+    record = json.loads((tmp_path / "aborted" / "dachs-final-votable-Q11-c8-r3.json").read_text())
+    assert record["probe"]["status"] == 500 and "pool exhausted" in record["probe"]["body"]
+    assert not (tmp_path / "summaries").exists()
+
+
+def test_an_aborted_rung_is_never_marked_done():
+    source = (SUITE / "tap_compare" / "cli.py").read_text()
+    loop = source[source.index("def cmd_compare") : source.index("def _abort_failing_rung")]
+    abort = loop.index("_abort_failing_rung(")
+    assert abort < loop.index('run.write_json(f"summaries/') < loop.index("run.mark_done(key")
+
+
+# -- amendment 3: DaCHS serves as gavo, not root ------------------------------
+
+
+def test_every_dachs_compose_call_serves_as_gavo():
+    for name in MEASURERS:
+        (body,) = re.findall(r"compose_dachs\(\) \{\n(.*?)\n\}", (HERE / name).read_text(), re.S)
+        assert '-f "$HERE/pins/dachs-as-gavo.yml"' in body, name
+    overlay = _yaml(HERE / "pins" / "dachs-as-gavo.yml")["services"]["dachs"]
+    assert overlay["entrypoint"] == ["/bin/bash", "/dachs-as-gavo.sh"]
+    assert overlay["volumes"] == ["./final-skycell/pins/dachs-as-gavo.sh:/dachs-as-gavo.sh:ro"]
+    assert (SUITE / "final-skycell" / "pins" / "dachs-as-gavo.sh").is_file()
+
+
+def test_the_dachs_user_is_checked_before_the_job_table_is_cleared():
+    for name in MEASURERS:
+        (body,) = re.findall(r"up_dachs\(\) \{\n(.*?)\n\}", (HERE / name).read_text(), re.S)
+        assert body.index("check_dachs_user") < body.index("clear_dachs_jobs"), name
+    assert (
+        '"$(docker exec tap-compare-dachs-1 ps -o user= -p 1' in (HERE / "backend.sh").read_text()
+    )
+
+
+def test_the_wrapper_changes_only_the_images_last_line(tmp_path):
+    """The wrapper's sed, run over the image's entrypoint: exactly one line
+    differs, and it is the serve line, now under setpriv as gavo."""
+    wrapper = (HERE / "pins" / "dachs-as-gavo.sh").read_text()
+    (expr,) = re.findall(r"sed '([^']+)'", wrapper)
+    source = SUITE / "targets" / "dachs" / "entrypoint.sh"
+    out = subprocess.run(["sed", expr, str(source)], capture_output=True, text=True, check=True)
+    before, after = source.read_text().splitlines(), out.stdout.splitlines()
+    changed = [(a, b) for a, b in zip(before, after, strict=True) if a != b]
+    assert changed == [
+        (
+            "exec dachs serve debug",
+            "exec setpriv --reuid=gavo --regid=gavo --init-groups dachs serve debug",
+        )
+    ]
+    assert "grep -qx 'exec setpriv --reuid=gavo" in wrapper  # refuses a changed image

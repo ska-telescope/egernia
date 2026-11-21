@@ -84,6 +84,7 @@ fail_early() { echo "FAIL $*" >&2; exit 1; }
 expect() { [ "$2" = "$3" ] || fail "$1: got '$2', expected '$3'"; }
 # shellcheck source=backend.sh
 . "$HERE/backend.sh"
+trap stop_and_keep_logs EXIT INT TERM  # amendment 2
 
 # The generator's cores must be disjoint from every tier's server cpusets: a
 # generator sharing a measured stack's cores reports its own contention as the
@@ -116,7 +117,7 @@ compose_egernia() {
 }
 compose_dachs() {
     docker compose -p "$SUITE_PROJECT" -f "$SUITE/docker-compose.dachs.yml" \
-        -f "$HERE/pins/dachs-$1.yml" "${@:2}"
+        -f "$HERE/pins/dachs-$1.yml" -f "$HERE/pins/dachs-as-gavo.yml" "${@:2}"
 }
 compose_argus() {
     docker compose -p "$SUITE_PROJECT" -f "$SUITE/docker-compose.argus.yml" \
@@ -217,6 +218,8 @@ up_dachs() {
             "$(awk -v s=$setting '$1 == s {print $3}' "$HERE/pins/dachs-postgres-$tier.conf")"
     done
     check_cpuset "$(cpuset_of "$HERE/pins/dachs-$tier.yml")" $DACHS_CONTAINERS
+    check_dachs_user  # amendment 3
+    clear_dachs_jobs  # amendment 2
 }
 
 up_argus() {
@@ -405,7 +408,7 @@ for tier in $TIERS; do
         log "PROGRESS tier=$tier step=measure interleaved"
         # shellcheck disable=SC2086
         tap compare --targets $TARGETS --scenario "$SCENARIO" --tier "$tier" \
-            --classes $CLASSES --resume "$RUN_NAME"
+            --classes $CLASSES --resume "$RUN_NAME" --abort-error-fraction "$ABORT_ERROR_FRACTION"
     else
         for server in $ORDER; do
             for other in egernia dachs argus; do
@@ -422,7 +425,8 @@ for tier in $TIERS; do
             log "PROGRESS tier=$tier step=measure target=$local_target"
             # shellcheck disable=SC2086
             tap compare --targets $TARGETS --scenario "$SCENARIO" --tier "$tier" \
-                --only "$local_target" --classes $CLASSES --resume "$RUN_NAME"
+                --only "$local_target" --classes $CLASSES --resume "$RUN_NAME" \
+                --abort-error-fraction "$ABORT_ERROR_FRACTION"
             log "PROGRESS tier=$tier step=done target=$local_target"
         done
     fi
