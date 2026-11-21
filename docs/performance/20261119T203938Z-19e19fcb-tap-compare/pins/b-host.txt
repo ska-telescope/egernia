@@ -1,0 +1,16 @@
+# 2026-11-20T07:05:52Z phase b, host
+generator_cpus=24-29
+generator_cores=24 25 26 27 28 29
+generator_processes=6
+egernia_cpuset=0-7 argus_cpuset=8-15 dachs_cpuset=16-23
+neighbour_cpu_percent_max=50
+allow_neighbours=0
+neighbours_hot=none
+## docker stats (all containers, name / cpu / mem / cpuset)
+tap-compare-argus-1 0.07% 239.6MiB / 3GiB cpuset=8-15
+tap-compare-argus-db-1 0.02% 67.25MiB / 5GiB cpuset=8-15
+tap-compare-dachs-1 0.03% 186.6MiB / 8GiB cpuset=16-23
+egernia-tap-api-1 0.90% 1.002GiB / 2GiB cpuset=0-7
+egernia-tap-executor-1 0.08% 83.2MiB / 2GiB cpuset=0-7
+egernia-db-1 0.06% 136.2MiB / 4GiB cpuset=0-7
+srcnet-registry 0.00% 13.03MiB / 120.9GiB cpuset=

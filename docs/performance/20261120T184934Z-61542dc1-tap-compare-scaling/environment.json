@@ -1,0 +1,65 @@
+{
+  "corpus_sha256": "9f9da00f45f129bca6af68083a08a1a9e340eded89c29ad17d89eefe6cd7ff1b",
+  "git": {
+    "branch": "bench/11-final-skycell-amend-2",
+    "describe": "tap-compare-final-skycell-prereg-v4",
+    "dirty": false,
+    "sha": "61542dc13ab5a4753ba1965fc7f67b5ffd15abca"
+  },
+  "host": {
+    "cpu_count": 30,
+    "machine": "x86_64",
+    "platform": "Linux-6.8.0-134-generic-x86_64-with-glibc2.39",
+    "processor": "x86_64",
+    "python": "3.14.6"
+  },
+  "recorded_at": 1795200574.0497308,
+  "scenario": {
+    "scaling3-skycell": {
+      "generator_processes": 6,
+      "ladder": [
+        8,
+        32
+      ],
+      "maxrec": 100000,
+      "measure_seconds": 60,
+      "per_class": true,
+      "repetitions": 3,
+      "response_formats": [
+        "votable",
+        "csv"
+      ],
+      "warmup_seconds": 20
+    }
+  },
+  "seed": 424242,
+  "target": {
+    "argus-scaling3": {
+      "base_url": "http://localhost/argus",
+      "name": "argus-scaling3",
+      "notes": "argus as argus-final, under final-skycell/pins/argus-<tier>.yml: the tier's cpuset, the 3/8 Tomcat + 5/8 PostgreSQL memory split, the vendor JVM defaults, its UWS job store truncated before every block.",
+      "portable_only": true,
+      "server": "argus"
+    },
+    "dachs-scaling3": {
+      "base_url": "http://localhost:8081/tap",
+      "name": "dachs-scaling3",
+      "notes": "DaCHS as dachs-final, under final-skycell/pins/dachs-<tier>.yml: the tier's cpus, cpuset and memory, its PostgreSQL sized by the 1/4 rule.",
+      "portable_only": true,
+      "server": "dachs"
+    },
+    "egernia-skycell-scaling3": {
+      "base_url": "http://localhost:8080/tap",
+      "name": "egernia-skycell-scaling3",
+      "notes": "egernia on skycell v0.58 under final-skycell/pins/egernia-<tier>.yml + skycell.yml: the tier's cpuset, memory split 1/2 db, 1/4 api, 1/4 executor, API workers 1/2/4, PostgreSQL sized by docs/postgres-performance.md.",
+      "portable_only": true,
+      "server": "egernia"
+    }
+  },
+  "tier_mode": "tiered",
+  "tiers": [
+    "8",
+    "16",
+    "24"
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "corpus_sha256": "9f9da00f45f129bca6af68083a08a1a9e340eded89c29ad17d89eefe6cd7ff1b",
+  "git": {
+    "branch": "bench/11-final-skycell",
+    "describe": "tap-compare-final-skycell-prereg-v2",
+    "dirty": false,
+    "sha": "d360fb1e7e756139a0c62c8c8eb393cc8c932282"
+  },
+  "host": {
+    "cpu_count": 30,
+    "machine": "x86_64",
+    "platform": "Linux-6.8.0-134-generic-x86_64-with-glibc2.39",
+    "processor": "x86_64",
+    "python": "3.14.6"
+  },
+  "recorded_at": 1794875862.020129,
+  "scenario": {
+    "backend-ab": {
+      "generator_processes": 6,
+      "ladder": [
+        1,
+        4,
+        8,
+        32
+      ],
+      "maxrec": 100000,
+      "measure_seconds": 60,
+      "per_class": true,
+      "repetitions": 3,
+      "response_formats": [
+        "votable",
+        "csv"
+      ],
+      "warmup_seconds": 20
+    }
+  },
+  "seed": 424242,
+  "target": {
+    "egernia-ab-pgsphere": {
+      "base_url": "http://localhost:18080/tap",
+      "name": "egernia-ab-pgsphere",
+      "notes": "The same images on pg_sphere, compose project `egernia-pgs` with its own seeded volume, under final-skycell/pins/egernia-ab-pgsphere.yml: the same budget and worker count on cpuset 8-15, host ports 15432/18080.",
+      "portable_only": true,
+      "server": "egernia"
+    },
+    "egernia-ab-skycell": {
+      "base_url": "http://localhost:8080/tap",
+      "name": "egernia-ab-skycell",
+      "notes": "egernia on skycell v0.58, compose project `egernia` under final-skycell/pins/egernia-w1.yml + skycell.yml: cpuset 0-7, 8 GiB as 4 db / 2 api / 2 executor, TAP_API_WORKERS=1.",
+      "portable_only": true,
+      "server": "egernia"
+    }
+  },
+  "tier_mode": "flat"
+}
