@@ -1,0 +1,69 @@
+{
+  "corpus_sha256": "9f9da00f45f129bca6af68083a08a1a9e340eded89c29ad17d89eefe6cd7ff1b",
+  "git": {
+    "branch": "bench/11-final-skycell-amend-2",
+    "describe": "tap-compare-final-skycell-prereg-v3",
+    "dirty": false,
+    "sha": "19e19fcbd2f43457e9f92ca555ee40646a390357"
+  },
+  "host": {
+    "cpu_count": 30,
+    "machine": "x86_64",
+    "platform": "Linux-6.8.0-134-generic-x86_64-with-glibc2.39",
+    "processor": "x86_64",
+    "python": "3.14.6"
+  },
+  "recorded_at": 1795120778.5214663,
+  "resumed": [
+    {
+      "at": 1795158352.0187416,
+      "dirty": false,
+      "sha": "61542dc13ab5a4753ba1965fc7f67b5ffd15abca"
+    }
+  ],
+  "scenario": {
+    "final": {
+      "generator_processes": 6,
+      "ladder": [
+        1,
+        4,
+        8,
+        32
+      ],
+      "maxrec": 100000,
+      "measure_seconds": 60,
+      "per_class": true,
+      "repetitions": 3,
+      "response_formats": [
+        "votable",
+        "csv"
+      ],
+      "warmup_seconds": 20
+    }
+  },
+  "seed": 424242,
+  "target": {
+    "argus-final": {
+      "base_url": "http://localhost/argus",
+      "name": "argus-final",
+      "notes": "CADC argus 1.0.27 from its digest-pinned vendor image over PostgreSQL 17 + pgsphere (benchmarks/tap-compare/docker-compose.argus.yml), the corpus as a plain caom2.obscore table, under final-skycell/pins/argus.yml: cpuset 8-15. Unchanged between the phases, its UWS job store truncated before each.",
+      "portable_only": true,
+      "server": "argus"
+    },
+    "dachs-final": {
+      "base_url": "http://localhost:8081/tap",
+      "name": "dachs-final",
+      "notes": "GAVO DaCHS from the Debian gavodachs2-server package (benchmarks/tap-compare/docker-compose.dachs.yml), rebuilt and re-ingested for this protocol, under final-skycell/pins/dachs.yml: cpus 8 on cpuset 16-23, 8 GiB, its PostgreSQL sized by the 1/4 rule. Unchanged between the phases.",
+      "portable_only": true,
+      "server": "dachs"
+    },
+    "egernia-skycell-w8": {
+      "base_url": "http://localhost:8080/tap",
+      "name": "egernia-skycell-w8",
+      "notes": "Phase B. The same stack under final-skycell/pins/egernia-w8.yml + skycell.yml: TAP_API_WORKERS=8 and PostgreSQL's parallel budget re-derived for the pool total, exactly as final/ phase B.",
+      "portable_only": true,
+      "server": "egernia"
+    }
+  },
+  "tier_mode": "flat"
+}
