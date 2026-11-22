@@ -19,8 +19,9 @@ do, and rebuilt when its definition changes (see ``ensure_obscore``).
 Column metadata is transcribed from REC-ObsCore-v1.1-20170509 Table 6 (the
 TAP_SCHEMA values for the mandatory fields); utypes carry the ``obscore:``
 prefix the table's caption says it omits. One non-standard column rides
-along: ``s_region_geom``, the pgsphere footprint the ingest pipeline
-derives from ``s_region``, registered with ``std = 0`` so ADQL
+along: ``s_region_geom``, the footprint the ingest pipeline derives from
+``s_region`` (a pgsphere or skycell geometry, by geometry backend),
+registered with ``std = 0`` so ADQL
 ``INTERSECTS``/``CONTAINS`` work on the table too.
 
 Mapping decisions (each visible in the SQL below):
@@ -51,6 +52,11 @@ import re
 from typing import NamedTuple
 
 from egernia_core.config import settings
+from egernia_core.metadata.schema_gen import (
+    position_index_definition,
+    position_index_name,
+    position_statistics_statements,
+)
 
 log = logging.getLogger("tap-api")
 
@@ -345,7 +351,8 @@ OBSCORE_COLUMNS: list[ObsCoreColumn] = [
         "Name of the instrument used for this observation",
         "o.instrument_name",
     ),
-    # Non-standard companion: the pgsphere footprint derived from s_region.
+    # Non-standard companion: the footprint derived from s_region, a pgsphere
+    # spoly or a skycell skyregion by geometry backend.
     # std = 0 says it plainly; it exists so INTERSECTS/CONTAINS work directly
     # on the view.
     ObsCoreColumn(
@@ -353,7 +360,9 @@ OBSCORE_COLUMNS: list[ObsCoreColumn] = [
         "char",
         "pos.outline;obs.field",
         None,
-        "pgsphere footprint derived from s_region at ingestion (non-standard);"
+        # {backend}: the geometry backend's name, filled in at registration
+        "{backend} footprint derived from s_region at ingestion"
+        " (non-standard);"
         " query it with INTERSECTS/CONTAINS",
         "p.s_region_geom",
         principal=0,
@@ -517,26 +526,33 @@ def select_sql(products: str = "srcnet.data_products") -> str:
     )
 
 
-# Indexes on the relation, by name. The DID is the unique key (the upsert
-# target) and gets a trigram index too, so equality, a prefix and a component
-# in the middle (``LIKE '%<project>/%'``) are all index scans; the rest are
-# the ObsCore filter columns any client narrows by, and the two GiST indexes
-# the ADQL geometry functions translate to (``spoint(RADIANS(s_ra),
-# RADIANS(s_dec))`` is the exact expression a cone search becomes, and only an
-# index on that expression is considered).
-INDEXES: dict[str, str] = {
-    "obscore_did_key": "UNIQUE INDEX {name} ON {table} (obs_publisher_did)",
-    "obscore_did_trgm": "INDEX {name} ON {table} USING gin (obs_publisher_did gin_trgm_ops)",
-    "obscore_collection_idx": "INDEX {name} ON {table} (obs_collection)",
-    "obscore_type_calib_idx": "INDEX {name} ON {table} (dataproduct_type, calib_level)",
-    "obscore_calib_idx": "INDEX {name} ON {table} (calib_level)",
-    "obscore_time_idx": "INDEX {name} ON {table} (t_min, t_max)",
-    "obscore_target_idx": "INDEX {name} ON {table} (target_name)",
-    "obscore_spoint_gist": (
-        "INDEX {name} ON {table} USING gist (spoint(RADIANS(s_ra), RADIANS(s_dec)))"
-    ),
-    "obscore_s_region_geom_gist": "INDEX {name} ON {table} USING gist (s_region_geom)",
-}
+def position_index() -> str:
+    """The index a cone search over (s_ra, s_dec) is answered from: the same
+    one, for the configured geometry backend, as a generated table carrying
+    the position pair gets (geometry.py)."""
+    return position_index_name("obscore")
+
+
+def indexes() -> dict[str, str]:
+    """Indexes on the relation, by name, in the order they are built (and
+    fingerprinted). The DID is the unique key (the upsert target) and gets a
+    trigram index too, so equality, a prefix and a component in the middle
+    (``LIKE '%<project>/%'``) are all index scans; the rest are the ObsCore
+    filter columns any client narrows by, the position index, and the GiST
+    index on the footprint."""
+    return {
+        "obscore_did_key": "UNIQUE INDEX {name} ON {table} (obs_publisher_did)",
+        "obscore_did_trgm": "INDEX {name} ON {table} USING gin (obs_publisher_did gin_trgm_ops)",
+        "obscore_collection_idx": "INDEX {name} ON {table} (obs_collection)",
+        "obscore_type_calib_idx": "INDEX {name} ON {table} (dataproduct_type, calib_level)",
+        "obscore_calib_idx": "INDEX {name} ON {table} (calib_level)",
+        "obscore_time_idx": "INDEX {name} ON {table} (t_min, t_max)",
+        "obscore_target_idx": "INDEX {name} ON {table} (target_name)",
+        position_index(): "INDEX {name} " + position_index_definition("{table}"),
+        "obscore_s_region_geom_gist": "INDEX {name} ON {table} USING gist (s_region_geom)",
+    }
+
+
 # needs pg_trgm, which a role that cannot CREATE EXTENSION may not have
 TRGM_INDEX = "obscore_did_trgm"
 # the leading column of each index, for TAP_SCHEMA's ``indexed`` flag
@@ -547,7 +563,7 @@ INDEXED_COLUMNS = frozenset(
 
 
 def index_sql(name: str, table: str = TABLE, suffix: str = "") -> str:
-    return "CREATE " + INDEXES[name].format(name=f"{name}{suffix}", table=table)
+    return "CREATE " + indexes()[name].format(name=f"{name}{suffix}", table=table)
 
 
 def _set_clause(columns) -> str:
@@ -680,7 +696,7 @@ def definition_comment() -> str:
     nothing issues no DDL at all; a changed fingerprint rebuilds the relation
     from scratch, and marks it as this service's to rebuild."""
     definition = "\n".join(
-        (select_sql(), did_encode_sql(), *trigger_sql(), *(index_sql(n) for n in INDEXES))
+        (select_sql(), did_encode_sql(), *trigger_sql(), *(index_sql(n) for n in indexes()))
     )
     digest = hashlib.sha256(definition.encode()).hexdigest()[:16]
     return f"{COMMENT_PREFIX} (definition {digest})"
@@ -692,6 +708,10 @@ def _create_index(conn, name: str, table: str = TABLE, suffix: str = "") -> None
     role that cannot loses the index, not the bootstrap)."""
     if name != TRGM_INDEX:
         conn.execute(index_sql(name, table, suffix))
+        if name == position_index():
+            schema = table.split(".")[0]
+            for statement in position_statistics_statements(f"{schema}.{name}{suffix}"):
+                conn.execute(statement)
         return
     conn.execute("SAVEPOINT obscore_trgm")
     try:
@@ -727,7 +747,7 @@ def _build(conn, existing_relkind: str | None) -> None:
     )
     conn.execute(f"DROP TABLE IF EXISTS {BUILD}")
     conn.execute(f"CREATE TABLE {BUILD} AS\n{select_sql()}")
-    for name in INDEXES:
+    for name in indexes():
         _create_index(conn, name, BUILD, "_build")
     conn.execute(f"ANALYZE {BUILD}")
     for statement in trigger_sql():
@@ -737,7 +757,7 @@ def _build(conn, existing_relkind: str | None) -> None:
     elif existing_relkind is not None:
         conn.execute(f"DROP TABLE {TABLE}")
     conn.execute(f"ALTER TABLE {BUILD} RENAME TO {TABLE.split('.')[1]}")
-    for name in INDEXES:
+    for name in indexes():
         if conn.execute("SELECT to_regclass(%s)", (f"ivoa.{name}_build",)).fetchone()[0]:
             conn.execute(f"ALTER INDEX ivoa.{name}_build RENAME TO {name}")
     # the expression index the view needed on data_products: the DID is a
@@ -756,7 +776,7 @@ def _ensure_indexes(conn) -> None:
     left to IF NOT EXISTS, which locks the table before it looks."""
     missing = [
         name
-        for name in INDEXES
+        for name in indexes()
         if not conn.execute("SELECT to_regclass(%s)", (f"ivoa.{name}",)).fetchone()[0]
     ]
     for name in missing:
@@ -830,7 +850,7 @@ def ensure_obscore(conn) -> None:
                 column.unit,
                 column.ucd,
                 column.utype,
-                column.description,
+                column.description.replace("{backend}", settings.geometry_backend),
                 int(column.name in INDEXED_COLUMNS),
                 column.principal,
                 column.std,

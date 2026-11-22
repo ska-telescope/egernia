@@ -6,6 +6,9 @@ This page is generated from the installed pydantic data models during every
 MkDocs build. It therefore documents the same table and column definitions that 
 the service creates and registers in `TAP_SCHEMA` at startup.
 
+The tables are rendered for the `pgsphere` geometry backend: each 
+`s_region_geom` footprint column is a `spoly`, and it is `skyregion` under `TAP_GEOMETRY_BACKEND=skycell` instead (see [Deployment](deployment.md#geometry-backend-pg_sphere-or-skycell)).
+
 ## `odp`
 
 **Root model:** `ska_src_mm_notification.models.schemas.srcnet_ingestion.SRCIngestionNotification`  

@@ -8,6 +8,8 @@ It can also be run directly when the checked-in page needs refreshing.
 from collections.abc import Iterable
 from pathlib import Path
 
+from egernia_core.config import geometry_backend
+from egernia_core.geometry import BACKENDS
 from egernia_core.metadata.plugins import MetadataPlugin, discovered_plugins
 from egernia_core.metadata.schema_gen import TAP_DATATYPES
 
@@ -19,6 +21,24 @@ def _cell(value: object) -> str:
     if value is None or value == "":
         return "—"
     return str(value).replace("|", "\\|").replace("\n", " ")
+
+
+def _geometry_note() -> list[str]:
+    """Which geometry backend the footprint columns below are rendered for."""
+    backend = geometry_backend()
+    others = ", ".join(
+        f"`{b.region_type}` under `TAP_GEOMETRY_BACKEND={b.name}`"
+        for b in BACKENDS.values()
+        if b is not backend
+    )
+    return [
+        f"The tables are rendered for the `{backend.name}` geometry backend: each ",
+        (
+            f"`s_region_geom` footprint column is a `{backend.region_type}`, and it is {others} "
+            "instead (see [Deployment](deployment.md#geometry-backend-pg_sphere-or-skycell))."
+        ),
+        "",
+    ]
 
 
 def render_schema_docs(plugins: Iterable[MetadataPlugin]) -> str:
@@ -33,6 +53,7 @@ def render_schema_docs(plugins: Iterable[MetadataPlugin]) -> str:
         "MkDocs build. It therefore documents the same table and column definitions that ",
         "the service creates and registers in `TAP_SCHEMA` at startup.",
         "",
+        *_geometry_note(),
     ]
 
     for plugin in plugins:

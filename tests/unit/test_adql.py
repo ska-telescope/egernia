@@ -140,6 +140,8 @@ SHAPES = (
     "SELECT LOWER(obs_collection) FROM ivoa.obscore WHERE obs_collection ILIKE 'ska%'",
     "SELECT ra FROM ska.continuum_sources ORDER BY ra OFFSET 100",
     "SELECT a FROM t UNION SELECT a FROM u",
+    "SELECT a.obs_id, b.obs_id FROM ivoa.obscore AS a JOIN ivoa.obscore AS b ON "
+    "DISTANCE(POINT('ICRS', a.s_ra, a.s_dec), POINT('ICRS', b.s_ra, b.s_dec)) < 1.0/3600.0",
 )
 
 
@@ -672,3 +674,246 @@ def test_the_hit_and_miss_split_is_exact_under_threads():
 
     assert ADQL_TRANSLATION_HITS._value.get() - hits == 4 * 500
     assert ADQL_TRANSLATION_MISSES._value.get() - misses == 2 * 10
+
+
+# ---------------------------------------------------------------------------
+# DISTANCE predicates lowered to indexable pgsphere containment.
+#
+# `DEGREES(p <-> q) < r` is a function of two columns and no index answers
+# it, so a catalogue cross-match written the way ADQL users write it plans
+# as a nested loop over two sequential scans. The lowering emits the
+# containment a GiST index on the point expression does serve, conjoined
+# with the original comparison so the rows are unchanged.
+# ---------------------------------------------------------------------------
+
+XMATCH = (
+    "SELECT a.obs_id FROM ivoa.obscore AS a JOIN ivoa.obscore AS b ON "
+    "DISTANCE(POINT('ICRS', a.s_ra, a.s_dec), POINT('ICRS', b.s_ra, b.s_dec)) {}"
+)
+
+
+def test_distance_lt_lowers_to_containment():
+    sql = adql_to_postgresql(XMATCH.format("< 1.0/3600.0"))
+    assert (
+        "spoint(RADIANS(a.s_ra), RADIANS(a.s_dec)) @ "
+        "scircle(spoint(RADIANS(b.s_ra), RADIANS(b.s_dec)), RADIANS(1.0/3600.0))"
+    ) in sql
+
+
+def test_both_argument_orders_of_the_containment_are_emitted():
+    """Only the *left* operand of `@` can be matched against an index on the
+    point expression, so `p @ scircle(q, r)` reaches p's index and not q's.
+    Which way round the user writes DISTANCE is arbitrary, and on the 500k
+    ivoa.obscore the unlucky order measured 151 s against 16 ms for the
+    lucky one. Both are emitted so the planner picks; each is a superset of
+    the true predicate, so the conjunction still contains every matching
+    row."""
+    sql = adql_to_postgresql(XMATCH.format("< 1.0/3600.0"))
+    assert (
+        "spoint(RADIANS(a.s_ra), RADIANS(a.s_dec)) @ "
+        "scircle(spoint(RADIANS(b.s_ra), RADIANS(b.s_dec)), RADIANS(1.0/3600.0)) AND "
+        "spoint(RADIANS(b.s_ra), RADIANS(b.s_dec)) @ "
+        "scircle(spoint(RADIANS(a.s_ra), RADIANS(a.s_dec)), RADIANS(1.0/3600.0))"
+    ) in sql
+
+
+def test_lowered_radius_is_radians_while_distance_stays_degrees():
+    """DISTANCE is degrees; scircle's radius is radians. The conversion is
+    the whole correctness of the rewrite."""
+    sql = adql_to_postgresql(XMATCH.format("< 0.25"))
+    assert "scircle(spoint(RADIANS(b.s_ra), RADIANS(b.s_dec)), RADIANS(0.25))" in sql
+    assert "DEGREES(spoint(RADIANS(a.s_ra), RADIANS(a.s_dec)) <-> " in sql
+
+
+@pytest.mark.parametrize("op", ["<", "<="])
+def test_boundary_is_decided_by_the_original_comparison(op):
+    """pgsphere's `@` includes the boundary, so it is a superset of both
+    `< r` and `<= r` — a filter, not the answer. The original comparison is
+    kept as the second conjunct and decides `distance == r`, so `<` still
+    excludes that row and `<=` still includes it."""
+    sql = adql_to_postgresql(XMATCH.format(f"{op} 0.25"))
+    assert " @ scircle(" in sql
+    assert (
+        " AND DEGREES(spoint(RADIANS(a.s_ra), RADIANS(a.s_dec)) <-> "
+        f"spoint(RADIANS(b.s_ra), RADIANS(b.s_dec))) {op} 0.25)"
+    ) in sql
+
+
+@pytest.mark.parametrize(
+    "predicate",
+    [
+        "DISTANCE(POINT('ICRS', s_ra, s_dec), POINT('ICRS', 10, 20)) < 0.5",
+        "DISTANCE(POINT('ICRS', s_ra, s_dec), POINT('ICRS', 10, 20)) <= 0.5",
+        "0.5 > DISTANCE(POINT('ICRS', s_ra, s_dec), POINT('ICRS', 10, 20))",
+        "0.5 >= DISTANCE(POINT('ICRS', s_ra, s_dec), POINT('ICRS', 10, 20))",
+        # the four-coordinate spelling of DISTANCE
+        "DISTANCE(s_ra, s_dec, 10, 20) < 0.5",
+        # POINT arguments as expressions, and the coordinate system omitted
+        "DISTANCE(POINT(s_ra + 0, s_dec), POINT(10, 20)) < 0.5",
+        # a constant-arithmetic bound, which is how an arcsecond is written
+        "DISTANCE(POINT('ICRS', s_ra, s_dec), POINT('ICRS', 10, 20)) < 1.0/3600.0",
+    ],
+)
+def test_shapes_that_lower(predicate):
+    sql = adql_to_postgresql(f"SELECT obs_id FROM ivoa.obscore WHERE {predicate}")
+    assert " @ scircle(" in sql
+
+
+@pytest.mark.parametrize(
+    "predicate",
+    [
+        # containment says nothing about being outside a circle
+        "DISTANCE(POINT('ICRS', s_ra, s_dec), POINT('ICRS', 10, 20)) > 0.5",
+        "DISTANCE(POINT('ICRS', s_ra, s_dec), POINT('ICRS', 10, 20)) >= 0.5",
+        "0.5 < DISTANCE(POINT('ICRS', s_ra, s_dec), POINT('ICRS', 10, 20))",
+        "0.5 <= DISTANCE(POINT('ICRS', s_ra, s_dec), POINT('ICRS', 10, 20))",
+        # an equality is not a range
+        "DISTANCE(POINT('ICRS', s_ra, s_dec), POINT('ICRS', 10, 20)) = 0.5",
+        "DISTANCE(POINT('ICRS', s_ra, s_dec), POINT('ICRS', 10, 20)) != 0.5",
+        # BETWEEN is an annulus, not a disc
+        "DISTANCE(POINT('ICRS', s_ra, s_dec), POINT('ICRS', 10, 20)) BETWEEN 0.1 AND 0.5",
+        # not a bare DISTANCE: rescaling the bound is not this rewrite's job
+        "2*DISTANCE(POINT('ICRS', s_ra, s_dec), POINT('ICRS', 10, 20)) < 0.5",
+        # a per-row bound can be negative, and scircle raises on a negative
+        # radius — the rewrite would turn rows into a query failure
+        "DISTANCE(POINT('ICRS', s_ra, s_dec), POINT('ICRS', 10, 20)) < sep_col",
+        "DISTANCE(POINT('ICRS', s_ra, s_dec), POINT('ICRS', 10, 20)) < -0.5",
+        # pgsphere rejects an scircle radius above 90 degrees
+        "DISTANCE(POINT('ICRS', s_ra, s_dec), POINT('ICRS', 10, 20)) < 91",
+        "DISTANCE(POINT('ICRS', s_ra, s_dec), POINT('ICRS', 10, 20)) < 1" + "0" * 400,
+        # PostgreSQL computes -0.2 here (integer division truncates), not 0.3
+        "DISTANCE(POINT('ICRS', s_ra, s_dec), POINT('ICRS', 10, 20)) < -1.2 - (-3/2)",
+        # only decimal literals are evaluated
+        "DISTANCE(POINT('ICRS', s_ra, s_dec), POINT('ICRS', 10, 20)) < 0x10",
+    ],
+)
+def test_shapes_that_are_left_alone(predicate):
+    sql = adql_to_postgresql(f"SELECT obs_id FROM ivoa.obscore WHERE {predicate}")
+    assert "scircle" not in sql
+    assert "<->" in sql
+
+
+def test_select_list_distance_still_computes_the_distance():
+    """Only the predicate is lowered. A DISTANCE in the SELECT list is a
+    value, and it keeps the emission it always had — including next to a
+    predicate that does lower."""
+    sql = adql_to_postgresql(
+        "SELECT DISTANCE(POINT('ICRS', s_ra, s_dec), POINT('ICRS', 10, 20)) AS d "
+        "FROM ivoa.obscore "
+        "WHERE DISTANCE(POINT('ICRS', s_ra, s_dec), POINT('ICRS', 10, 20)) < 0.5 "
+        "ORDER BY d"
+    )
+    select_list, _, where = sql.partition("WHERE")
+    assert "DEGREES(spoint(RADIANS(s_ra), RADIANS(s_dec)) <-> " in select_list
+    assert "scircle" not in select_list
+    assert " @ scircle(" in where
+
+
+def test_lowered_predicate_records_its_geometry_columns():
+    """The lowering builds the points itself, so the ADQL 2.1 column
+    references in them must still reach the caller's type check."""
+    assert translate("SELECT 1 FROM t WHERE DISTANCE(p1, p2) < 0.5").geometry_columns == frozenset(
+        {"p1", "p2"}
+    )
+
+
+@pytest.mark.parametrize("radius", ["120", "90.5", "-1"])
+def test_a_circle_pg_sphere_cannot_draw_is_a_query_error(radius):
+    """pg_sphere's circles stop at 90 degrees; a constant radius beyond is
+    refused at translation, with the limit named, rather than failing inside
+    the database."""
+    with pytest.raises(QueryParseError, match="between 0 and 90 degrees"):
+        adql_to_postgresql(
+            "SELECT obs_id FROM ivoa.obscore"
+            f" WHERE 1 = CONTAINS(POINT('ICRS', s_ra, s_dec), CIRCLE('ICRS', 10, 20, {radius}))"
+        )
+
+
+@pytest.mark.parametrize("radius", ["0", "90", "s_fov * 2"])
+def test_a_circle_pg_sphere_can_draw_translates(radius):
+    # the limits themselves, and a radius only the database can evaluate
+    sql = adql_to_postgresql(
+        "SELECT obs_id FROM ivoa.obscore"
+        f" WHERE 1 = CONTAINS(POINT('ICRS', s_ra, s_dec), CIRCLE('ICRS', 10, 20, {radius}))"
+    )
+    assert "scircle(" in sql
+
+
+# -- only declared functions are callable -------------------------------------
+# The grammar reads any name before "(" as a user-defined function and prints
+# it as written, so without a filter every function the query role can execute
+# is reachable. Only the functions the capabilities declare are allowed.
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        "pg_sleep(10)",
+        "PG_SLEEP(10)",  # the match is case-insensitive
+        "set_config('statement_timeout', '0', false)",
+        "version()",
+        "pg_read_file('/etc/passwd')",
+    ],
+)
+def test_an_undeclared_function_is_refused(call):
+    with pytest.raises(QueryParseError, match="unknown function"):
+        adql_to_postgresql(f"SELECT {call} FROM ska.continuum_sources")
+
+
+def test_an_undeclared_function_is_refused_where_it_hides():
+    # not only the select list: nested in a geometry argument
+    with pytest.raises(QueryParseError, match="unknown function"):
+        adql_to_postgresql(
+            "SELECT ra FROM ska.continuum_sources WHERE 1 = CONTAINS("
+            "POINT('ICRS', ra, dec), CIRCLE('ICRS', 1, 2, pg_sleep(10)))"
+        )
+
+
+def test_the_declared_adql_functions_still_translate():
+    # the ADQL math/string/aggregate functions the grammar has rules of its
+    # own for are keyword tokens, not user-defined calls, and stay callable
+    sql = adql_to_postgresql(
+        "SELECT COUNT(*), AVG(ra), ABS(dec), LOWER(obs_id), COALESCE(ra, 0)"
+        " FROM ska.continuum_sources"
+    )
+    assert "avg(" in sql.lower()
+
+
+def test_a_function_named_in_a_string_literal_is_not_a_call():
+    # the token before "(" rule reads the parse, so text inside a literal is
+    # left alone
+    sql = adql_to_postgresql("SELECT 'pg_sleep(1)' AS s FROM ska.continuum_sources")
+    assert "pg_sleep" in sql
+
+
+@pytest.mark.parametrize(
+    "box",
+    [
+        "BOX('ICRS', 0, 89, 4, 4)",  # top edge at Dec 91, past the N pole
+        "BOX('ICRS', 0, -89, 4, 4)",  # bottom edge at Dec -91, past the S pole
+        "BOX('ICRS', 0, 0, 4, 190)",  # a tall box swallowing both poles
+    ],
+)
+def test_a_box_past_a_pole_is_a_query_error(box):
+    """pg_sphere reflects an out-of-range latitude back over the pole, so a box
+    reaching a pole silently folds to the wrong patch of sky. It is refused at
+    translation rather than returning the wrong rows."""
+    with pytest.raises(QueryParseError, match="past a pole"):
+        adql_to_postgresql(
+            f"SELECT obs_id FROM ivoa.obscore WHERE 1 = CONTAINS(POINT('ICRS', s_ra, s_dec), {box})"
+        )
+
+
+@pytest.mark.parametrize(
+    "box",
+    [
+        "BOX('ICRS', 10, 20, 4, 4)",  # nowhere near a pole
+        "BOX('ICRS', 0, 86, 4, 8)",  # top edge exactly at Dec 90
+        "BOX('ICRS', 0, -86, 4, 8)",  # bottom edge exactly at Dec -90
+    ],
+)
+def test_a_box_up_to_a_pole_translates(box):
+    sql = adql_to_postgresql(
+        f"SELECT obs_id FROM ivoa.obscore WHERE 1 = CONTAINS(POINT('ICRS', s_ra, s_dec), {box})"
+    )
+    assert "sbox(" in sql

@@ -171,6 +171,45 @@ STACKS = {
         "docker compose -f benchmarks/tap-compare/docker-compose.dachs.yml \\\n"
         "    -f benchmarks/tap-compare/final/pins/dachs.yml up -d",
     ),
+    # the skycell rerun (final-skycell/PROTOCOL.md): final/'s shapes with
+    # egernia's geometry on skycell; DaCHS and argus reuse the entries above,
+    # their pins being byte copies
+    "egernia-skycell-w1": (
+        "egernia on skycell in `benchmarks/tap-compare/final-skycell/pins/egernia-w1.yml`"
+        " + `skycell.yml` (`cpuset` 0-7; 8 GiB split 4 db / 2 api / 2 executor;"
+        " `TAP_API_WORKERS=1`; `benchmarks/tap-compare/final-skycell/PROTOCOL.md`)",
+        "docker compose -f docker-compose.yml \\\n"
+        "    -f benchmarks/tap-compare/final-skycell/pins/egernia-w1.yml \\\n"
+        "    -f benchmarks/tap-compare/final-skycell/pins/skycell.yml up -d",
+    ),
+    "egernia-skycell-w8": (
+        "egernia on skycell in `benchmarks/tap-compare/final-skycell/pins/egernia-w8.yml`"
+        " + `skycell.yml` (`cpuset` 0-7; 8 GiB split 4 db / 2 api / 2 executor;"
+        " `TAP_API_WORKERS=8`, PostgreSQL parallel budget 144/152;"
+        " `benchmarks/tap-compare/final-skycell/PROTOCOL.md`)",
+        "docker compose -f docker-compose.yml \\\n"
+        "    -f benchmarks/tap-compare/final-skycell/pins/egernia-w8.yml \\\n"
+        "    -f benchmarks/tap-compare/final-skycell/pins/skycell.yml up -d",
+    ),
+    "egernia-ab-skycell": (
+        "egernia on skycell in `benchmarks/tap-compare/final-skycell/pins/egernia-w1.yml`"
+        " + `skycell.yml` (`cpuset` 0-7; 8 GiB split 4 db / 2 api / 2 executor;"
+        " `TAP_API_WORKERS=1`; `benchmarks/tap-compare/final-skycell/PROTOCOL.md`)",
+        "docker compose -f docker-compose.yml \\\n"
+        "    -f benchmarks/tap-compare/final-skycell/pins/egernia-w1.yml \\\n"
+        "    -f benchmarks/tap-compare/final-skycell/pins/skycell.yml up -d",
+    ),
+    "egernia-ab-pgsphere": (
+        "egernia on pg_sphere in"
+        " `benchmarks/tap-compare/final-skycell/pins/egernia-ab-pgsphere.yml`"
+        " (`cpuset` 8-15; 8 GiB split 4 db / 2 api / 2 executor;"
+        " `TAP_API_WORKERS=1`; `benchmarks/tap-compare/final-skycell/PROTOCOL.md`)",
+        # the three services only: a bare `up -d` would start a second
+        # Prometheus on host port 9090, beside the skycell project's
+        "docker compose -p egernia-pgs -f docker-compose.yml \\\n"
+        "    -f benchmarks/tap-compare/final-skycell/pins/egernia-ab-pgsphere.yml \\\n"
+        "    up -d db tap-api tap-executor",
+    ),
     "egernia-local-equalcpu": (
         "egernia in `benchmarks/tap-compare/argus-equal-cpu/egernia-equalcpu.yml`"
         " (shared `cpuset` of 8 cores; 8 GiB split 4 db / 2 api / 2 executor;"
@@ -224,6 +263,8 @@ SCALING_PROTOCOLS = {
     "scaling-smoke": "scaling/PROTOCOL.md",
     "scaling3": "scaling-three-way/PROTOCOL.md",
     "scaling3-smoke": "scaling-three-way/PROTOCOL.md",
+    "scaling3-skycell": "final-skycell/PROTOCOL.md",
+    "scaling3-skycell-smoke": "final-skycell/PROTOCOL.md",
 }
 DEFAULT_SCALING_PROTOCOL = "scaling/PROTOCOL.md"
 
@@ -252,7 +293,15 @@ SERVER_CONTAINERS = {
     "dachs": ("tap-compare-dachs-1",),
     "argus": ("tap-compare-argus-1", "tap-compare-argus-db-1"),
 }
-API_CONTAINER = "egernia-tap-api-1"
+#: a target whose stack is not its server's default containers: the backend
+#: A/B's second egernia, its own compose project (final-skycell/PROTOCOL.md)
+TARGET_CONTAINERS = {
+    "egernia-ab-pgsphere": (
+        "egernia-pgs-db-1",
+        "egernia-pgs-tap-api-1",
+        "egernia-pgs-tap-executor-1",
+    ),
+}
 #: a rung whose window the samples cover less than this is reported without resources
 MIN_COVERAGE = 0.8  # 5 s samples inside a 60 s window cover at worst 50 s of it
 RESOURCE_COLUMNS = [
@@ -322,7 +371,7 @@ def resources(run_dir: pathlib.Path, rows: list[dict]) -> dict[str, dict]:
         parquet = run_dir / "samples" / f"{key}.parquet"
         if not parquet.exists() or not row["requests"]:
             continue
-        containers = SERVER_CONTAINERS.get(row["server"])
+        containers = TARGET_CONTAINERS.get(row["target"]) or SERVER_CONTAINERS.get(row["server"])
         if not containers:
             continue  # a server the sampler does not know: not covered, not zero
         start, end = _window(parquet)
@@ -347,11 +396,12 @@ def resources(run_dir: pathlib.Path, rows: list[dict]) -> dict[str, dict]:
         if not totals:
             continue
         workers = None
-        if API_CONTAINER in inside:
+        api = next((c for c in containers if c.endswith("tap-api-1")), None)
+        if api:
             # the steady count (the minimum: a health check adds a python
             # process for a sample now and then); above one worker uvicorn
             # runs a supervisor and a multiprocessing resource tracker too
-            procs = min(s[3] for s in inside[API_CONTAINER])
+            procs = min(s[3] for s in inside[api])
             workers = 1 if procs <= 1 else max(procs - 2, 1)
         mem_mean = sum(totals) / len(totals)
         mem_peak = max(totals)

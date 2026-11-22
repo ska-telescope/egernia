@@ -63,12 +63,14 @@ class MetadataPlugin:
 
     @property
     def tables(self) -> list[TableSpec]:
-        return _tables(self)
+        return _tables(self, settings.geometry_backend)
 
 
 # MetadataPlugin is eq=False, so instances hash by identity and cache safely.
+# The geometry backend is part of the key because it decides the footprint
+# column's type (geometry.py, region_type).
 @cache
-def _tables(plugin: MetadataPlugin) -> list[TableSpec]:
+def _tables(plugin: MetadataPlugin, geometry_backend: str) -> list[TableSpec]:
     return build_tables(
         plugin.model,
         plugin.sql_schema,

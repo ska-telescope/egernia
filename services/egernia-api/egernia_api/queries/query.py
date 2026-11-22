@@ -9,7 +9,8 @@ import time
 from collections.abc import Generator, Iterator
 from typing import Any, cast
 
-from egernia_core.config import settings
+import psycopg
+from egernia_core.config import geometry_backend, settings
 from egernia_core.db import connection as db_connection
 from egernia_core.errors import UsageError
 from egernia_core.metadata.schema_gen import REGION_SUFFIX
@@ -24,8 +25,9 @@ from egernia_core.query.upload import (
     rewrite_upload_refs,
 )
 from egernia_core.query.votable import normalize_format
-from starlette.concurrency import run_in_threadpool
+from starlette.concurrency import iterate_in_threadpool, run_in_threadpool
 from starlette.requests import ClientDisconnect
+from starlette.responses import Response, StreamingResponse
 
 from .params import require
 
@@ -67,7 +69,8 @@ def prepare_query(params: dict[str, str]) -> dict:
 
     # Geometry slots accept any bare identifier during translation, which is
     # pure and consults no schema. A text column reaching PostgreSQL there
-    # fails as `operator does not exist: text && scircle` — a server-fault
+    # fails as `operator does not exist: text && scircle` (or, under skycell,
+    # `function intersects(text, skyregion) does not exist`) — a server-fault
     # shape for a usage error, naming neither the column at fault nor the one
     # to use. Refused here instead, where the column metadata already is.
     _reject_text_geometry(translation.geometry_columns, tables, upload_names)
@@ -162,16 +165,13 @@ def _published_tables(*, refresh: bool = False) -> frozenset[str]:
         return tables
 
 
-# pgsphere's spatial types. A column is queryable with INTERSECTS/CONTAINS
-# exactly when PostgreSQL holds it as one of these; TAP_SCHEMA cannot answer
-# this, because its VOTable datatype for spoly is "char" — the same as the
-# STC-S text the footprint was derived from.
-_GEOMETRY_TYPES = frozenset({"spoly", "spoint", "scircle", "sbox", "spath", "sline"})
-
-
 @functools.cache
 def _column_is_geometry() -> dict[str, bool]:
-    """``schema.table.column`` -> whether PostgreSQL holds it as a geometry.
+    """``schema.table.column`` -> whether PostgreSQL holds it as a geometry
+    of the configured backend (geometry.py, geometry_types): the spatial
+    types INTERSECTS/CONTAINS translate for. TAP_SCHEMA cannot answer this,
+    because its VOTable datatype for spoly or skyregion is "char" -- the same
+    as the STC-S text a footprint is derived from.
 
     Read once and kept, rather than given the TTL and refresh-under-lock
     dance ``_published_tables`` needs, because the two go stale differently.
@@ -189,7 +189,7 @@ def _column_is_geometry() -> dict[str, bool]:
             " WHERE table_schema NOT IN ('pg_catalog', 'information_schema')"
         ).fetchall()
     return {
-        f"{schema}.{table}.{column}".lower(): udt in _GEOMETRY_TYPES
+        f"{schema}.{table}.{column}".lower(): udt in geometry_backend().geometry_types
         for schema, table, column, udt in rows
     }
 
@@ -231,22 +231,47 @@ def _reject_text_geometry(
             # one column and absent under the other. Answering a different
             # query than the one asked would drop those rows silently.
             message += (
-                f". Use {alternative}, the pgsphere footprint derived from it at"
+                f". Use {alternative}, the footprint geometry derived from it at"
                 f" ingestion — note it is NULL wherever {bare} could not be converted"
             )
         raise UsageError(message)
 
 
+# The unit/UCD/description annotations of the touched tables' columns, by
+# table set: read from TAP_SCHEMA for every query before, a round trip for an
+# answer that changes when the table list does. Same life and same
+# invalidation as the table list, so an annotation edited out of band shows
+# within the TTL. Bounded: query shapes are many, table sets are few, and the
+# bound only matters against a client cycling through table combinations.
+_ANNOTATIONS_MAX = 512
+_annotations_cache: dict[frozenset[str], tuple[float, dict[str, dict]]] = {}
+
+
+def _column_annotations(conn, tables: frozenset[str]) -> dict[str, dict]:
+    """tap_schema_metadata for these tables, from the cache unless stale."""
+    key = frozenset(t.lower() for t in tables)
+    cached = _annotations_cache.get(key)
+    if cached is not None and time.monotonic() - cached[0] < _PUBLISHED_TTL_S:
+        return cached[1]
+    meta = tap_schema_metadata(conn, key)
+    if len(_annotations_cache) >= _ANNOTATIONS_MAX:
+        _annotations_cache.clear()
+    _annotations_cache[key] = (time.monotonic(), meta)
+    return meta
+
+
 def forget_published_tables() -> None:
     """Drop what this service caches about the schema, for when it changes it.
 
-    Both caches, because publishing a table can also add the geometry column
-    a predicate over it would be judged against.
+    All three caches, because publishing a table can also add the geometry
+    column a predicate over it would be judged against, and the annotations
+    of the columns it publishes.
     """
     global _published_cache
     with _published_lock:
         _published_cache = None
     _column_is_geometry.cache_clear()
+    _annotations_cache.clear()
 
 
 def _cancel_connection(cancelled: threading.Event, done: threading.Event, conn) -> None:
@@ -277,15 +302,18 @@ def _result_chunks(
     with db_connection(replica_ok=not uploads) as conn, conn.transaction():
         done = threading.Event()
         watcher = None
-        tap_meta = tap_schema_metadata(conn, prepared["tables"])
+        tap_meta = _column_annotations(conn, prepared["tables"])
         if uploads:
             create_upload_tables(conn, uploads, settings.query_role)
+        # One round trip for the three: the sync time limit, no JIT
+        # (uninterruptible compile stalls) and the read-only query role,
+        # all local to this transaction. The role goes last: nothing this
+        # service runs before it needs to be the query role.
         conn.execute(
-            "SELECT set_config('statement_timeout', %s, true)",
-            (str(settings.sync_timeout_s * 1000),),
+            "SELECT set_config('statement_timeout', %s, true),"
+            " set_config('jit', 'off', true), set_config('role', %s, true)",
+            (str(settings.sync_timeout_s * 1000), settings.query_role),
         )
-        conn.execute("SET LOCAL jit = off")  # uninterruptible compile stalls
-        conn.execute("SELECT set_config('role', %s, true)", (settings.query_role,))
         # A plain streamed statement, not a DECLARE'd cursor: the planner may
         # use parallel workers and plans for the whole result, which a cursor
         # forbids — on a full-table aggregate that is most of the query's
@@ -311,6 +339,13 @@ def _result_chunks(
                     if cancelled is not None and cancelled.is_set():
                         raise ClientDisconnect
                     yield chunk
+        except psycopg.Error as exc:
+            # only errors of the user's statement: those of the setup above
+            # (TAP_SCHEMA, uploads, settings) are this service's and stay 500s
+            reported = _query_error(exc, cancelled)
+            if reported is None:
+                raise
+            raise reported from exc
         finally:
             done.set()
             if watcher is not None:
@@ -325,6 +360,40 @@ def _spooled_chunks(spool) -> Iterator[bytes]:
         spool.close()
 
 
+#: Errors pg_sphere raises on its input with the generic internal-error code
+#: (XX000) rather than one of its own; recognised by their message, which is
+#: pg_sphere's and stable across its releases.
+_PGSPHERE_INPUT_ERRORS = ("radius must not be greater than 90 degrees or less than 0",)
+
+
+def _query_error(exc: psycopg.Error, cancelled: threading.Event | None) -> Exception | None:
+    """What a database error raised by the user's query should be reported as.
+
+    PostgreSQL rejected something the query asked for -- a division by zero,
+    a value out of a function's range, a column that does not exist -- and
+    that is the client's error to fix, a DALI error document (400) carrying
+    PostgreSQL's own message, not an internal server error. A sync query
+    running out of time is the client's to fix too: the remedy is the async
+    endpoint. None for everything else (a lost connection, a server fault),
+    which stays a 500.
+    """
+    state = exc.sqlstate or ""
+    message = (exc.diag.message_primary or str(exc)).strip()
+    if isinstance(exc, psycopg.errors.QueryCanceled):
+        if cancelled is not None and cancelled.is_set():
+            return ClientDisconnect()
+        return UsageError(
+            f"query exceeded the synchronous time limit of {settings.sync_timeout_s} s;"
+            " submit it as an asynchronous job (/async) instead"
+        )
+    # class 22 data exception, class 42 syntax error or access rule violation
+    if state[:2] in ("22", "42"):
+        return UsageError(f"query failed in the database: {message}")
+    if state == "XX000" and message.startswith(_PGSPHERE_INPUT_ERRORS):
+        return UsageError(f"query failed in the database: {message}")
+    return None
+
+
 def run_sync(
     prepared: dict,
     uploads: list[UploadedTable] | None = None,
@@ -334,6 +403,11 @@ def run_sync(
 
     This releases the database connection before socket delivery, so a slow
     or disconnected reader cannot occupy the pool for the life of the body.
+
+    A body that stayed within the in-memory spool -- most synchronous
+    results -- comes back whole (:class:`WholeBody`), which the endpoints
+    send as one response (:func:`sync_response`); a larger one comes back as
+    an iterator over the spool file, streamed as before.
     """
     started = time.perf_counter()
     # Ownership passes to _spooled_chunks, which closes on EOF or disconnect.
@@ -348,12 +422,50 @@ def run_sync(
                     raise UsageError(f"synchronous result exceeds {max_bytes} bytes; use async")
                 spool.write(chunk)
         spool.seek(0)
+        if size <= SPOOL_MEMORY_BYTES:
+            body = spool.read()
+            spool.close()
+            return WholeBody(body), prepared["mime"]
     except Exception:
         spool.close()
         raise
     finally:
         QUERY_DURATION.labels(kind="sync").observe(time.perf_counter() - started)
     return _spooled_chunks(spool), prepared["mime"]
+
+
+class WholeBody:
+    """A sync body that stayed in memory: iterable once, as the spool's chunks
+    are, and sendable whole."""
+
+    def __init__(self, body: bytes):
+        self.body = body
+        self._sent = False
+
+    def __iter__(self) -> WholeBody:
+        return self
+
+    def __next__(self) -> bytes:
+        if self._sent:
+            raise StopIteration
+        self._sent = True
+        return self.body
+
+    def close(self) -> None:
+        self._sent = True
+
+
+def sync_response(chunks: Iterator[bytes], mime: str) -> Response:
+    """The response for what :func:`run_sync` returned.
+
+    A whole body is sent as it is. Streaming it instead would hand every
+    chunk, and the end of the stream, to a worker thread and back -- the
+    spool is a blocking file -- which for a body already in memory is
+    thread hops for nothing.
+    """
+    if isinstance(chunks, WholeBody):
+        return Response(chunks.body, media_type=mime)
+    return StreamingResponse(iterate_in_threadpool(chunks), media_type=mime)
 
 
 async def run_sync_for_request(request, prepared: dict, uploads=None):

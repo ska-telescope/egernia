@@ -6,12 +6,14 @@ import threading
 from dataclasses import replace
 from typing import Any, cast
 
+import psycopg
 import pytest
 from egernia_api.queries import query
 from egernia_api.queries.query import prepare_query, run_sync
 from egernia_core.config import settings
 from egernia_core.errors import UsageError
 from starlette.requests import ClientDisconnect
+from starlette.responses import StreamingResponse
 
 QUERY = "SELECT source_id, ra FROM ska.continuum_sources"
 
@@ -158,5 +160,100 @@ def test_run_sync_sets_timeout_and_role(fake_db):
     prepared = prepare_query({"QUERY": QUERY})
     chunks, _ = run_sync(prepared)
     b"".join(chunks)
-    assert any("set_config" in s for s in fake_db.statements)
-    assert any("set_config('role'" in s for s in fake_db.statements)
+    settings_sql = [s for s in fake_db.statements if "set_config" in s]
+    # one round trip for the time limit, JIT and role
+    assert len(settings_sql) == 1
+    for name in ("statement_timeout", "jit", "role"):
+        assert f"set_config('{name}'" in settings_sql[0]
+
+
+def test_column_annotations_cached_until_schema_changes(fake_db):
+    def annotation_reads():
+        return sum("FROM tap_schema.columns" in s for s in fake_db.statements)
+
+    query.forget_published_tables()
+    prepared = prepare_query({"QUERY": QUERY, "RESPONSEFORMAT": "votable"})
+    first = b"".join(run_sync(prepared)[0])
+    second = b"".join(run_sync(prepared)[0])
+    assert first == second  # the cached annotations still reach the VOTable
+    assert annotation_reads() == 1
+    query.forget_published_tables()
+    b"".join(run_sync(prepared)[0])
+    assert annotation_reads() == 2
+
+
+def test_small_body_is_sent_whole_and_large_body_streamed(fake_db):
+    prepared = prepare_query({"QUERY": QUERY, "RESPONSEFORMAT": "csv"})
+    chunks, mime = run_sync(prepared)
+    response = query.sync_response(chunks, mime)
+    assert not isinstance(response, StreamingResponse)
+    assert response.body.decode().splitlines() == ["source_id,ra", "1,62.1", "2,62.2"]
+    assert response.media_type == "text/csv"
+
+    fake_db.result_rows = [("x" * 1024, float(i)) for i in range(2048)]
+    chunks, mime = run_sync(prepared)
+    assert isinstance(query.sync_response(chunks, mime), StreamingResponse)
+    cast(Any, chunks).close()
+
+
+# A database error the user's query causes is the client's to fix: it is
+# reported as a query error (a DALI error document, 400) carrying
+# PostgreSQL's message, not as an internal server error.
+
+
+@pytest.mark.parametrize(
+    ("error", "message"),
+    [
+        (psycopg.errors.DivisionByZero("division by zero"), "division by zero"),
+        (
+            psycopg.errors.NumericValueOutOfRange("value out of range: overflow"),
+            "value out of range",
+        ),
+        (psycopg.errors.UndefinedColumn('column "nope" does not exist'), "does not exist"),
+        (
+            psycopg.errors.InternalError_(
+                "radius must not be greater than 90 degrees or less than 0"
+            ),
+            "radius must not be greater than 90 degrees",
+        ),
+    ],
+)
+def test_a_database_error_of_the_query_is_a_query_error(fake_db, error, message):
+    fake_db.result_error = error
+    prepared = prepare_query({"QUERY": QUERY})
+    with pytest.raises(UsageError, match=message) as raised:
+        run_sync(prepared)
+    assert raised.value.message.startswith("query failed in the database: ")
+    assert raised.value.__cause__ is error
+
+
+def test_a_sync_query_out_of_time_points_to_async(fake_db):
+    fake_db.result_error = psycopg.errors.QueryCanceled("canceling statement due to timeout")
+    prepared = prepare_query({"QUERY": QUERY})
+    with pytest.raises(UsageError, match="synchronous time limit") as raised:
+        run_sync(prepared)
+    assert "/async" in raised.value.message
+
+
+def test_a_query_cancelled_for_a_gone_client_stays_a_disconnect(fake_db):
+    fake_db.result_error = psycopg.errors.QueryCanceled("canceling statement due to user request")
+    cancelled = threading.Event()
+    cancelled.set()
+    prepared = prepare_query({"QUERY": QUERY})
+    with pytest.raises(ClientDisconnect):
+        run_sync(prepared, cancelled=cancelled)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        psycopg.OperationalError("server closed the connection unexpectedly"),
+        psycopg.errors.InternalError_("could not read block 7 in file base/16384/16385"),
+        psycopg.errors.DiskFull("could not extend file: No space left on device"),
+    ],
+)
+def test_a_server_fault_stays_a_server_fault(fake_db, error):
+    fake_db.result_error = error
+    prepared = prepare_query({"QUERY": QUERY})
+    with pytest.raises(type(error)):
+        run_sync(prepared)

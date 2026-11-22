@@ -1,0 +1,17 @@
+# argus in the final three-way comparison (../PROTOCOL.md): the parity
+# budget on its own eight cores, 8-15. Identical in both phases.
+#
+# The cores are disjoint from egernia's and DaCHS's because the server that
+# is not being measured is not idle: Tomcat keeps executing the requests its
+# queue still holds after the generator has closed its connections, and
+# argus's PostgreSQL ran at ~4.5 cores for up to ~75 s into egernia's rungs
+# on a shared cpuset (argus-equal-cpu/PROTOCOL.md, amendment 1; measured
+# 2026-09-08 06:11-06:13Z). This file is that amendment's argus-disjoint.yml.
+#
+#   docker compose -f benchmarks/tap-compare/docker-compose.argus.yml \
+#       -f benchmarks/tap-compare/final/pins/argus.yml up -d
+services:
+  argus:
+    cpuset: "8-15"
+  argus-db:
+    cpuset: "8-15"

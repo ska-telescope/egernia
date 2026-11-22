@@ -471,10 +471,31 @@ def collect_stats(conn, name: str, observations: int, seconds: float) -> Dataset
     )
 
 
+# The footprint as pgsphere builds it. Under the skycell geometry backend the
+# service declares s_region_geom as a skycell skyregion instead, which holds
+# the circle itself; the column's own type says which one to write.
+_SPOLY_FOOTPRINT = "bench.circle_spoly(sky.ra, sky.dec, sky.fov / 2.0)"
+_SKYREGION_FOOTPRINT = "skycell_circle(sky.ra, sky.dec, sky.fov / 2.0)"
+
+
+def _levels(conn) -> tuple[tuple[str, str], ...]:
+    """LEVELS, with the footprint written for s_region_geom's actual type."""
+    row = conn.execute(
+        "SELECT udt_name FROM information_schema.columns WHERE table_schema = 'srcnet'"
+        " AND table_name = 'data_products' AND column_name = 's_region_geom'"
+    ).fetchone()
+    if row is None or row[0] != "skyregion":
+        return LEVELS
+    return tuple(
+        (level, sql.replace(_SPOLY_FOOTPRINT, _SKYREGION_FOOTPRINT)) for level, sql in LEVELS
+    )
+
+
 def grow_to(conn, cfg: dict, target_bytes: int, batch_projects: int) -> int:
     """Generate until the database reaches target_bytes. Returns the highest
     project index written."""
     index = highest_project(conn)
+    levels = _levels(conn)
     if index:
         log.info("resuming generation from project %d", index)
     while True:
@@ -489,7 +510,7 @@ def grow_to(conn, cfg: dict, target_bytes: int, batch_projects: int) -> int:
             index,
         )
         lo, hi = index + 1, index + batch_projects
-        for level, statement in LEVELS:
+        for level, statement in levels:
             with conn.cursor() as cur:
                 cur.execute(statement, _params(cfg, lo, hi))
             conn.commit()

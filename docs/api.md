@@ -4,7 +4,12 @@ All resources live under the TAP base URL (default
 `http://localhost:8080/tap`). Parameters follow DALI conventions:
 case-insensitive names, sent via query string (GET) or form body (POST).
 Errors are returned as DALI VOTable documents with
-`INFO name="QUERY_STATUS" value="ERROR"` and HTTP status 400/404.
+`INFO name="QUERY_STATUS" value="ERROR"` and HTTP status 400/404. That
+includes a query PostgreSQL refuses while running it — a division by zero, a
+value out of a function's range, a circle pg_sphere cannot draw (radius
+outside 0–90°) — whose message is PostgreSQL's own, and a synchronous query
+that runs past `TAP_SYNC_TIMEOUT`, whose message points to `/async`. A 500 is
+reserved for faults of the service itself.
 
 ## Synchronous queries
 

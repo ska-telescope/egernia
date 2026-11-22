@@ -37,6 +37,7 @@ dropped with the fork since this service never emits MySQL.
 """
 
 import ast
+import decimal
 import operator
 import re
 
@@ -125,6 +126,36 @@ def _convert_values(ctx, cidx):
     return vals
 
 
+def _select_item(ctx, depth):
+    """The select-list item (derived column) ctx is the whole expression of,
+    or None. depth is how many levels above ctx's rule the item sits."""
+    return _get_ancestor_class_node(ctx, ADQLParser.Derived_columnContext,
+                                    depth=depth)
+
+
+def _aliased(text, item, alias):
+    """``text AS alias`` for a select item that does not name itself."""
+    if item is not None and not any(
+            isinstance(child, ADQLParser.As_clauseContext)
+            for child in item.children):
+        return f"{text} AS {alias}"
+    return text
+
+
+def _point_coords(ctx):
+    """The (lon, lat) of a POINT constructor, without the deprecated
+    coordinate system."""
+    coords = []
+    if len(ctx.children) > 4:
+        for j in (2, 4):
+            coords.extend(_convert_values(ctx, j))
+    else:
+        coords.extend(_convert_values(ctx, 2))
+    if len(coords) == 3:
+        coords = coords[1:]
+    return coords[0], coords[1]
+
+
 def _get_ancestor_class_node(ctx, ancestor_class, depth=1):
     """ Returns the ancestor node at 'depth' level above the current node if
     the node is of type 'ancestor_class'. Otherwise, returns None
@@ -197,25 +228,13 @@ class ADQLGeometryTranslationVisitor(ADQLParserVisitor):
         self.contexts[ctx] = 'AS ' + ri
 
     def visitPoint(self, ctx):
-        coords = []
-        if len(ctx.children) > 4:
-            for j in (2, 4):
-                coords.extend(self._convert_values(ctx, j))
-        else:
-            coords.extend(self._convert_values(ctx, 2))
-
-        if len(coords) == 3:
-            coords = coords[1:]
-
-        ctx_text = "spoint( %s(%s), %s(%s) )" % (self.conunits, coords[0],
-                                                 self.conunits, coords[1])
-        derived_column = _get_ancestor_class_node(
-            ctx, ADQLParser.Derived_columnContext, depth=3)
-        if derived_column is not None:
-            ctx_text = f"spoint_to_array_deg({ctx_text})"
-            if not (any([isinstance(child, ADQLParser.As_clauseContext)
-                         for child in derived_column.children])):
-                ctx_text = f"{ctx_text} AS adql_point"
+        lon, lat = _point_coords(ctx)
+        ctx_text = "spoint( %s(%s), %s(%s) )" % (self.conunits, lon,
+                                                 self.conunits, lat)
+        item = _select_item(ctx, 3)
+        if item is not None:
+            ctx_text = _aliased(f"spoint_to_array_deg({ctx_text})", item,
+                                "adql_point")
 
         _remove_children(ctx)
         self.contexts[ctx] = ctx_text
@@ -235,6 +254,20 @@ class ADQLGeometryTranslationVisitor(ADQLParserVisitor):
         except ValueError:
             raise QueryError('sbox values incorrect')
 
+        # A box whose top or bottom edge passes a pole cannot be an sbox:
+        # pg_sphere reflects an out-of-range latitude back over the pole
+        # (91 deg -> 89 deg, longitude + 180), so the box silently folds to
+        # the wrong patch of sky and misses the points it was meant to find.
+        # Refuse it rather than translate to a wrong answer. A region that
+        # reaches a pole is a cap -- use CIRCLE at the pole instead.
+        if pos_cent_dec - ddec < -90 or pos_cent_dec + ddec > 90:
+            raise QueryError(
+                'BOX reaches past a pole (latitude %.6f to %.6f is outside '
+                '-90 to 90); pg_sphere cannot represent a box that covers a '
+                'pole. Use CIRCLE at the pole instead.'
+                % (pos_cent_dec - ddec, pos_cent_dec + ddec)
+            )
+
         ctx_text = "sbox( spoint(%s(%s),%s(%s)),spoint(%s(%s),%s(%s)) )" %\
             (self.conunits, '%.12f' % (pos_cent_ra - dra),
              self.conunits, '%.12f' % (pos_cent_dec - ddec),
@@ -247,6 +280,14 @@ class ADQLGeometryTranslationVisitor(ADQLParserVisitor):
     def visitCircle(self, ctx):
         s = 4 if isinstance(ctx.children[2], ADQLParser.Coord_sysContext) else 2
         radius = self._convert_values(ctx, s+2)[0]
+        # pg_sphere's scircle refuses a radius outside 0-90 degrees when the
+        # query runs; a constant one is refused here instead, with the limit
+        # named. A radius computed from columns can only be checked by
+        # pg_sphere, and the service reports that refusal as a query error.
+        if isinstance(radius, float) and not 0 <= radius <= 90:
+            raise QueryError('CIRCLE radius must be between 0 and 90 degrees '
+                             '(pg_sphere\'s circles stop at 90); got %g'
+                             % radius)
         circle_center = ctx.children[s]
         if isinstance(circle_center.children[0], ADQLParser.CoordinatesContext):
             point_parameters = self._convert_values(circle_center, 0)
@@ -271,13 +312,10 @@ class ADQLGeometryTranslationVisitor(ADQLParserVisitor):
 
         ctx_text = "scircle( %s, %s(%s) )" %\
             (point_ctx_text, self.conunits, radius)
-        derived_column = _get_ancestor_class_node(
-            ctx, ADQLParser.Derived_columnContext, depth=3)
-        if derived_column is not None:
-            ctx_text = f"scircle_to_array_deg({ctx_text})"
-            if not (any([isinstance(child, ADQLParser.As_clauseContext)
-                         for child in derived_column.children])):
-                ctx_text = f"{ctx_text} AS circle"
+        item = _select_item(ctx, 3)
+        if item is not None:
+            ctx_text = _aliased(f"scircle_to_array_deg({ctx_text})", item,
+                                "circle")
         _remove_children(ctx)
         self.contexts[ctx] = ctx_text
 
@@ -299,13 +337,10 @@ class ADQLGeometryTranslationVisitor(ADQLParserVisitor):
         for p in pars:
             ctx_text += '(%s%s,%s%s),' % (str(p[0]), ustr, str(p[1]), ustr)
         ctx_text = ctx_text[:-1] + "}')"
-        derived_column = _get_ancestor_class_node(
-            ctx, ADQLParser.Derived_columnContext, depth=3)
-        if derived_column is not None:
-            ctx_text = f"spoly_to_array_deg({ctx_text})"
-            if not (any([isinstance(child, ADQLParser.As_clauseContext)
-                         for child in derived_column.children])):
-                ctx_text = f"{ctx_text} AS adql_polygon"
+        item = _select_item(ctx, 3)
+        if item is not None:
+            ctx_text = _aliased(f"spoly_to_array_deg({ctx_text})", item,
+                                "adql_polygon")
 
         _remove_children(ctx)
         self.contexts[ctx] = ctx_text
@@ -347,13 +382,8 @@ class ADQLFunctionsTranslationVisitor(ADQLParserVisitor):
 
     def visitArea(self, ctx):
         arg = self._geometry_argument(ctx.children[2])
-        ctx_text = 'square_degrees(area(%s))' % arg
-        derived_column = _get_ancestor_class_node(
-            ctx, ADQLParser.Derived_columnContext, depth=9)
-        if derived_column is not None:
-            if not (any([isinstance(child, ADQLParser.As_clauseContext)
-                         for child in derived_column.children])):
-                ctx_text = f"{ctx_text} AS adql_area"
+        ctx_text = _aliased('square_degrees(area(%s))' % arg,
+                            _select_item(ctx, 9), "adql_area")
 
         for _ in range(ctx.getChildCount() - 1):
             ctx.removeLastChild()
@@ -396,24 +426,115 @@ class ADQLFunctionsTranslationVisitor(ADQLParserVisitor):
         _remove_children(ctx)
         self.contexts[ctx] = ctx_text
 
-    def visitDistance(self, ctx):
-        arg = ('', '')
+    def _distance_points(self, ctx):
+        """The two pgsphere points of a DISTANCE call, in argument order."""
         if isinstance(ctx.children[2], ADQLParser.Coord_valueContext):
-            arg = (self._point_argument(ctx.children[2]),
-                   self._point_argument(ctx.children[4]))
-        else:
-            arg = (f"spoint(RADIANS({_convert_values(ctx, 2)[0]}), " +
-                          f"RADIANS({_convert_values(ctx, 4)[0]}))",
-                   f"spoint(RADIANS({_convert_values(ctx, 6)[0]}), " +
-                          f"RADIANS({_convert_values(ctx, 8)[0]}))")
+            return (self._point_argument(ctx.children[2]),
+                    self._point_argument(ctx.children[4]))
+        return (f"spoint(RADIANS({_convert_values(ctx, 2)[0]}), " +
+                       f"RADIANS({_convert_values(ctx, 4)[0]}))",
+                f"spoint(RADIANS({_convert_values(ctx, 6)[0]}), " +
+                       f"RADIANS({_convert_values(ctx, 8)[0]}))")
 
-        ctx_text = '%s(%s <-> %s)' % ((self.conunits, ) + arg)
-        derived_column = _get_ancestor_class_node(
-            ctx, ADQLParser.Derived_columnContext, depth=9)
-        if derived_column is not None:
-            if not (any([isinstance(child, ADQLParser.As_clauseContext)
-                         for child in derived_column.children])):
-                ctx_text = f"{ctx_text} AS distance"
+    def visitComparison_predicate(self, ctx):
+        """Lower `DISTANCE(p, q) < r` to a predicate an index can serve.
+
+        `DEGREES(p <-> q) < r` is a function of two columns: no index
+        answers it, so a cross-match written the way ADQL users write it
+        (Gaia's own examples) plans as a nested loop over two sequential
+        scans. The same rows are `p @ scircle(q, RADIANS(r))` -- and its
+        mirror image, `q @ scircle(p, RADIANS(r))` -- which a GiST index on
+        the point expression does serve.
+
+        Lowered: `DISTANCE(p, q) < r`, `<= r`, and `r > DISTANCE(p, q)`,
+        `r >= DISTANCE(p, q)`, for either DISTANCE spelling (two points or
+        four coordinates) and any POINT arguments, when *r* is a constant
+        numeric expression between 0 and 90 degrees (pgsphere's scircle
+        limits).
+
+        Left alone, deliberately: `>`, `>=`, `=`, `!=` and BETWEEN (a
+        containment says nothing about being *outside* a circle, and an
+        equality is not a range at all); anything but a bare DISTANCE on
+        one side (`2*DISTANCE(...) < r` is left as written rather than
+        rescaled); a bound that is not a constant (a per-row radius can be
+        negative, and `scircle` errors on a negative radius, which would
+        turn rows into a failure); and DISTANCE in the SELECT list, which
+        still has to compute the real distance.
+        """
+        lowered = self._lower_distance(ctx)
+        if lowered is None:
+            return self.visitChildren(ctx)
+        # Keep comp_op, the one child with a terminal of its own, as the
+        # token carrying the replacement -- the same trick the geometry
+        # rules play with their leading keyword.
+        comp_op = ctx.children[1]
+        ctx.children = [comp_op]
+        self.contexts[comp_op] = lowered
+        return None
+
+    def _lower_distance(self, ctx):
+        """The containment SQL for a comparison_predicate, or None.
+
+        None means "not a shape that lowers exactly"; the caller then
+        translates the comparison as it always did.
+        """
+        op = ctx.children[1].getText()
+        distance = _sole_distance(ctx.children[0])
+        if distance is not None:
+            bound_ctx = ctx.children[2]
+            if op not in ('<', '<='):
+                return None
+        else:
+            distance = _sole_distance(ctx.children[2])
+            bound_ctx = ctx.children[0]
+            if distance is None or op not in ('>', '>='):
+                return None
+            op = '<' if op == '>' else '<='
+
+        bound = bound_ctx.getText()
+        radius = _postgres_bound(bound)
+        # pgsphere rejects an scircle radius outside [0, 90] degrees, so a
+        # bound outside it would turn a query that ran into one that fails.
+        if radius is None or not 0 <= radius <= 90:
+            return None
+
+        left, right = self._distance_points(distance)
+        # Three terms, and all three earn their place:
+        #
+        # - `x @ scircle(y, r)` is what the index serves, but `@` is
+        #   pgsphere's containment, so it includes the boundary (and with a
+        #   floating-point epsilon around it). It is a *superset* of both
+        #   `< r` and `<= r` -- a filter, not the answer;
+        # - the mirror image, `y @ scircle(x, r)`, is the same predicate
+        #   with the arguments swapped, and is redundant to a reader. It is
+        #   not redundant to the planner: only the *left* operand can be
+        #   matched against an index on the point expression, so one
+        #   spelling reaches the catalogue's index and the other cannot.
+        #   Which one the user writes is arbitrary -- and measured on the
+        #   500k-row ivoa.obscore against a 1,000-row uploaded position
+        #   list, the unlucky order is 151 s (a sequential scan of the
+        #   catalogue per probe) where the lucky one is 16 ms. Emitting both
+        #   leaves the choice to the planner and costs nothing: the same
+        #   measurement with both terms present is also 16 ms. Each is a
+        #   superset of the true predicate, so their conjunction still
+        #   contains every row the query must return;
+        # - the original comparison, unchanged, decides. It runs only on
+        #   the rows the index already found, and it is exactly the
+        #   expression this query would have been given without the
+        #   lowering, so at `distance == r` the query keeps the rows it
+        #   had: `<` still excludes them, `<=` still includes them.
+        #
+        # DISTANCE is degrees; scircle's radius is radians, hence RADIANS.
+        return ('(%s @ scircle(%s, RADIANS(%s))'
+                ' AND %s @ scircle(%s, RADIANS(%s))'
+                ' AND %s(%s <-> %s) %s %s)'
+                % (left, right, bound, right, left, bound,
+                   self.conunits, left, right, op, bound))
+
+    def visitDistance(self, ctx):
+        arg = self._distance_points(ctx)
+        ctx_text = _aliased('%s(%s <-> %s)' % ((self.conunits, ) + arg),
+                            _select_item(ctx, 9), "distance")
 
         for _ in range(ctx.getChildCount() - 1):
             ctx.removeLastChild()
@@ -478,9 +599,69 @@ class ADQLFunctionsTranslationVisitor(ADQLParserVisitor):
         self.contexts[ctx] = ctx_text
 
 
-def _is_point(sql):
-    """Whether this translated geometry argument is a POINT constructor."""
-    return sql.lstrip().startswith('spoint(')
+_BOUND_TEXT = re.compile(r'[0-9.+\-*/()]+')
+
+
+def _postgres_bound(text):
+    """The value PostgreSQL gives a constant DISTANCE bound, or None.
+
+    The bound is emitted as written, so the range check has to see the
+    number PostgreSQL will compute, not the one Python would: decimal
+    literals are exact (numeric), and `/` between two integers truncates
+    toward zero, so `-1.2 - (-3/2)` is -0.2 there where Python says 0.3.
+    Only decimal literals, `+ - * /` and parentheses are understood;
+    anything else -- hex literals included -- is None, and stays unlowered.
+    """
+    if not _BOUND_TEXT.fullmatch(text):
+        return None
+
+    def _node(node):
+        # (value, is_integer) -- integer-ness decides how `/` behaves
+        if isinstance(node, ast.Constant) and not isinstance(node.value, bool):
+            literal = ast.get_source_segment(text, node)
+            value = decimal.Decimal(literal)
+            # PostgreSQL types an integer literal beyond bigint as numeric
+            return value, '.' not in literal and abs(value) < 2 ** 63
+        if isinstance(node, ast.UnaryOp) and type(node.op) in _NUM_UNARYOPS:
+            value, is_int = _node(node.operand)
+            return _NUM_UNARYOPS[type(node.op)](value), is_int
+        if isinstance(node, ast.BinOp) and type(node.op) in (
+                ast.Add, ast.Sub, ast.Mult, ast.Div):
+            (a, a_int), (b, b_int) = _node(node.left), _node(node.right)
+            if isinstance(node.op, ast.Div):
+                if a_int and b_int:
+                    quotient = abs(a) // abs(b)
+                    return (quotient if (a < 0) == (b < 0) else -quotient), True
+                return a / b, False
+            return _NUM_BINOPS[type(node.op)](a, b), a_int and b_int
+        raise ValueError('not a constant bound')
+
+    try:
+        with decimal.localcontext(prec=60):
+            return _node(ast.parse(text, mode='eval').body)[0]
+    except (ValueError, SyntaxError, decimal.DecimalException):
+        return None
+
+
+def _sole_distance(ctx):
+    """The DISTANCE call a value expression consists of, if that is all it is.
+
+    Descends the single-child chain from value_expression down; anything
+    with a sibling (an operator, a sign, parentheses) stops the descent, so
+    only a comparison against a bare DISTANCE is ever lowered.
+    """
+    while not isinstance(ctx, ADQLParser.DistanceContext):
+        children = getattr(ctx, 'children', None)
+        if not children or len(children) != 1:
+            return None
+        ctx = children[0]
+    return ctx
+
+
+def _is_point(sql, constructor='spoint'):
+    """Whether this translated geometry argument is a POINT constructor
+    (pg_sphere's ``spoint``, or another backend's)."""
+    return sql.lstrip().startswith(constructor + '(')
 
 
 def _negate_intersects(sql):
@@ -667,10 +848,14 @@ class ADQLQueryTranslator(object):
         self.walker.walk(format_listener, self.tree)
         return format_listener.format_query()
 
-    def to_postgresql(self):
+    def to_postgresql(self,
+                      geometry_cls=ADQLGeometryTranslationVisitor,
+                      functions_cls=ADQLFunctionsTranslationVisitor):
         """
-        Translate ADQL query to a PostgreSQL query using pg_sphere plugin
-        for the spherical functions.
+        Translate ADQL query to a PostgreSQL query. The visitor classes
+        choose the spherical functions: pg_sphere's by default, or skycell's
+        (skycell.py; egernia_core.query.adql picks them by
+        TAP_GEOMETRY_BACKEND).
 
         """
         if self._query is None:
@@ -678,10 +863,9 @@ class ADQLQueryTranslator(object):
 
         self.parse()
 
-        geometry_visitor = ADQLGeometryTranslationVisitor()
+        geometry_visitor = geometry_cls()
         geometry_visitor.visit(self.tree)
-        translator_visitor = \
-            ADQLFunctionsTranslationVisitor(geometry_visitor.contexts)
+        translator_visitor = functions_cls(geometry_visitor.contexts)
         translator_visitor.visit(self.tree)
         self.geometry_columns = frozenset(
             geometry_visitor.geometry_columns |

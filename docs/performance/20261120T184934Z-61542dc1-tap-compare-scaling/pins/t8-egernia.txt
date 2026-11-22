@@ -1,0 +1,45 @@
+# 2026-11-20T18:51:05Z tier 8 egernia
+## egernia-db-1
+cpuset=0-7 nanocpus=0 memory=4294967296
+postgres -c shared_buffers=1GB -c effective_cache_size=3GB -c work_mem=64MB -c max_parallel_workers=32 -c max_worker_processes=40
+  PID                 COMMAND
+  699373              postgres -c shared_buffers=1GB -c effective_cache_size=3GB -c work_mem=64MB -c max_parallel_workers=32 -c max_worker_processes=40
+  699490              postgres: io worker 0
+  699491              postgres: io worker 1
+  699492              postgres: io worker 2
+  699493              postgres: checkpointer
+  699494              postgres: background writer
+  699496              postgres: walwriter
+  699497              postgres: autovacuum launcher
+  699498              postgres: logical replication launcher
+  699815              postgres: tap tap 172.18.0.4(43282) idle
+  699816              postgres: tap tap 172.18.0.4(43292) idle
+  699848              postgres: tap tap 172.18.0.3(44364) idle
+  699849              postgres: tap tap 172.18.0.3(44372) idle
+  702858              postgres: tap tap 172.18.0.3(51150) idle
+## egernia-tap-api-1
+cpuset=0-7 nanocpus=0 memory=2147483648
+/bin/sh -c exec /srv/.venv/bin/uvicorn egernia_api.main:app --host 0.0.0.0 --port "${TAP_API_PORT:-8080}" --workers "${TAP_API_WORKERS:-1}" --backlog "${TAP_API_BACKLOG:-2048}" ${TAP_API_LIMIT_CONCURRENCY:+--limit-concurrency "${TAP_API_LIMIT_CONCURRENCY}"}
+TAP_API_WORKERS=1
+TAP_GEOMETRY_BACKEND=skycell
+  PID                 COMMAND
+  699620              /srv/.venv/bin/python /srv/.venv/bin/uvicorn egernia_api.main:app --host 0.0.0.0 --port 8080 --workers 1 --backlog 2048
+## egernia-tap-executor-1
+cpuset=0-7 nanocpus=0 memory=2147483648
+/srv/.venv/bin/python -m egernia_executor.worker
+TAP_GEOMETRY_BACKEND=skycell
+  PID                 COMMAND
+  699621              /srv/.venv/bin/python -m egernia_executor.worker
+## SHOW
+effective_cache_size = 3GB
+max_connections = 100
+max_parallel_workers = 32
+max_worker_processes = 40
+shared_buffers = 1GB
+work_mem = 64MB
+## extensions
+pg_sphere 1.5.2
+pg_stat_statements 1.12
+pg_trgm 1.6
+plpgsql 1.0
+skycell 0.50

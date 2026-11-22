@@ -1,0 +1,9 @@
+# Amendment 3 (../PROTOCOL.md): DaCHS serves as the unprivileged `gavo` user.
+# Layered after the cpuset pins on every DaCHS compose call of experiments 2
+# and 3; the image, its entrypoint and DaCHS's version are unchanged.
+services:
+  dachs:
+    entrypoint: ["/bin/bash", "/dachs-as-gavo.sh"]
+    volumes:
+      # relative to the first compose file's directory (benchmarks/tap-compare)
+      - ./final-skycell/pins/dachs-as-gavo.sh:/dachs-as-gavo.sh:ro

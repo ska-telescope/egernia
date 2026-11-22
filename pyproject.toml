@@ -13,6 +13,21 @@ dependencies = [
 
 [tool.uv]
 package = false
+# ska-src-logging caps the OpenTelemetry instrumentation packages at <0.51,
+# which holds opentelemetry-api at 1.29.0 (CVE-2026-114603, CVE-2026-126360).
+# Lift the caps until the library relaxes them upstream, then drop this.
+override-dependencies = [
+    "opentelemetry-instrumentation-fastapi>=0.50b0",
+    "opentelemetry-instrumentation-requests>=0.50b0",
+    "opentelemetry-instrumentation-system-metrics>=0.50b0",
+    "opentelemetry-exporter-prometheus>=0.50b0",
+]
+# pytest-benchmark 5.3.1 (the latest) reads item._nodeid, which pytest 9.2
+# removed, so the hot-path benchmarks error under 9.2. Hold pytest until
+# pytest-benchmark supports it, then drop this.
+constraint-dependencies = [
+    "pytest<9.2",
+]
 
 [tool.uv.workspace]
 members = ["libs/egernia-core", "services/egernia-api", "services/egernia-executor"]

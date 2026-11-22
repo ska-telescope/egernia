@@ -42,7 +42,10 @@ what the standard and the existing VO clients expect.
 ## Cone search
 
 ADQL geometry is translated to [pg_sphere](https://pgsphere.github.io/)
-expressions, so positional queries are indexed rather than scanned:
+expressions (or to [skycell](https://github.com/jesusjuansalgado/skycell)'s,
+with `TAP_GEOMETRY_BACKEND=skycell` — see
+[Deployment](deployment.md#geometry-backend-pg_sphere-or-skycell)), so
+positional queries are indexed rather than scanned:
 
 ```bash
 curl "http://localhost:8080/tap/sync" \

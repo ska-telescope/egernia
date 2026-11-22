@@ -209,7 +209,7 @@ def test_the_fingerprint_covers_everything_that_produces_a_row(auth_settings):
 
 
 def test_every_index_is_an_obscore_filter_column_or_the_key():
-    assert set(obscore.INDEXES) >= {
+    assert set(obscore.indexes()) >= {
         "obscore_did_key",
         obscore.TRGM_INDEX,
         "obscore_spoint_gist",
@@ -340,7 +340,7 @@ def test_a_missing_index_is_put_back_on_a_current_relation():
     conn = _RecordingConn("r", comment=obscore.definition_comment(), index_exists=False)
     obscore.ensure_obscore(conn)
     created = [s for s in conn.statements if s.startswith("CREATE ") and " INDEX " in s]
-    assert created == [obscore.index_sql(name) for name in obscore.INDEXES]
+    assert created == [obscore.index_sql(name) for name in obscore.indexes()]
     assert not any(s.startswith(("DROP", "CREATE TABLE", "LOCK")) for s in conn.statements)
     order = _ddl(conn)
     assert order.index("CREATE EXTENSION IF NOT EXISTS pg_trgm") < order.index(
@@ -367,7 +367,7 @@ def test_an_unavailable_pg_trgm_costs_the_index_not_the_bootstrap(caplog):
     assert "ROLLBACK TO SAVEPOINT obscore_trgm" in conn.statements
     created = [s for s in conn.statements if s.startswith("CREATE ") and " INDEX " in s]
     assert created == [
-        obscore.index_sql(name) for name in obscore.INDEXES if name != obscore.TRGM_INDEX
+        obscore.index_sql(name) for name in obscore.indexes() if name != obscore.TRGM_INDEX
     ]
     assert any("tap_schema.columns" in s for s in conn.statements)  # bootstrap went on
     assert "trigram index not created" in caplog.text
@@ -395,8 +395,8 @@ def test_a_stale_view_is_rebuilt_beside_itself_and_swapped_in():
     # every index is built on the scratch table under a scratch name, and
     # renamed once the swap has freed the real one
     built = [s for s in conn.statements if s.startswith("CREATE ") and " INDEX " in s]
-    assert built == [obscore.index_sql(n, obscore.BUILD, "_build") for n in obscore.INDEXES]
-    for name in obscore.INDEXES:
+    assert built == [obscore.index_sql(n, obscore.BUILD, "_build") for n in obscore.indexes()]
+    for name in obscore.indexes():
         assert order.index(f"ALTER INDEX ivoa.{name}_build RENAME TO {name}") > rename
     # the expression index the view needed is gone with it
     assert "DROP INDEX IF EXISTS srcnet.data_products_obscore_did_trgm" in order

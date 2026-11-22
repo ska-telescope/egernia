@@ -13,6 +13,7 @@ data:
   {{- /* int64 guards against Helm rendering large numbers as 1e+06 */}}
   TAP_DEFAULT_MAXREC: {{ .Values.config.defaultMaxrec | int64 | quote }}
   TAP_HARD_MAXREC: {{ .Values.config.hardMaxrec | int64 | quote }}
+  TAP_GEOMETRY_BACKEND: {{ .Values.config.geometryBackend | quote }}
   TAP_SYNC_TIMEOUT: {{ .Values.config.syncTimeoutSeconds | int64 | quote }}
   TAP_SYNC_MAX_BYTES: {{ .Values.config.syncMaxBytes | int64 | quote }}
   TAP_ASYNC_EXEC_DURATION: {{ .Values.config.asyncExecDurationSeconds | int64 | quote }}

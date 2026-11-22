@@ -5,10 +5,12 @@ The fork (see `_adql/README.md`) extends the grammar to ADQL 2.1; the
 non-forked parts of queryparser (PostgreSQL processor, exceptions) are
 still used from the PyPI package.
 
-ADQL geometry (POINT/CIRCLE/CONTAINS/...) is translated to pg_sphere
-expressions, so the PostgreSQL backend needs the pg_sphere extension.
+ADQL geometry (POINT/CIRCLE/CONTAINS/...) is translated for the extension
+``settings.geometry_backend`` names -- pg_sphere by default, or skycell --
+so the PostgreSQL backend needs that extension installed.
 """
 
+import itertools
 import logging
 import threading
 from dataclasses import dataclass
@@ -19,6 +21,7 @@ from antlr4 import BailErrorStrategy, PredictionMode
 from queryparser.exceptions import QueryError, QuerySyntaxError
 from queryparser.postgresql import PostgreSQLQueryProcessor
 
+from .. import geometry
 from ..config import settings
 from ..errors import QueryParseError
 from ..observability import (
@@ -33,8 +36,25 @@ from ._adql import (
     ADQLQueryTranslator,
     SyntaxErrorListener,
 )
+from ._adql.skycell import (
+    SkycellFunctionsTranslationVisitor,
+    SkycellGeometryTranslationVisitor,
+)
+from ._adql.translator import (
+    ADQLFunctionsTranslationVisitor,
+    ADQLGeometryTranslationVisitor,
+)
 
 log = logging.getLogger("egernia_core")
+
+#: The ADQL geometry and function visitors for each TAP_GEOMETRY_BACKEND: the
+#: one per-backend piece kept beside the translator rather than in geometry.py
+GEOMETRY_VISITORS = {
+    "pgsphere": (ADQLGeometryTranslationVisitor, ADQLFunctionsTranslationVisitor),
+    "skycell": (SkycellGeometryTranslationVisitor, SkycellFunctionsTranslationVisitor),
+}
+if GEOMETRY_VISITORS.keys() != geometry.BACKENDS.keys():
+    raise RuntimeError("GEOMETRY_VISITORS and geometry.BACKENDS name different backends")
 
 SUPPORTED_LANGUAGES = {"ADQL", "ADQL-2.0", "ADQL-2.1"}
 
@@ -83,6 +103,9 @@ class _Translator(ADQLQueryTranslator):
     succeeds outright.
     """
 
+    #: the (lower-case) names a query may call as user-defined functions
+    declared_functions: frozenset[str] = frozenset()
+
     def set_query(self, query):
         # Deliberately does not parse: to_postgresql() does, and the base
         # class's eager parse here is discarded a moment later.
@@ -106,6 +129,7 @@ class _Translator(ADQLQueryTranslator):
             log.debug("ADQL fast parse fell back to full context: %s", exc)
             super().parse()
             ADQL_SLOW_PARSES.inc()
+        self._refuse_undeclared_functions()
 
     def _parse_sll(self):
         stream = antlr4.CommonTokenStream(ADQLLexer(antlr4.InputStream(self.query)))
@@ -129,6 +153,28 @@ class _Translator(ADQLQueryTranslator):
         self.syntax_error_listener = listener
         self.tree = tree
         self.walker = antlr4.ParseTreeWalker()
+
+    def _refuse_undeclared_functions(self) -> None:
+        """Refuse a call of a function the capabilities do not declare.
+
+        The grammar takes any name followed by a parenthesis as a
+        user-defined function and the translation prints it as written, so
+        without this every function the query role may execute is callable:
+        ``pg_sleep``, ``set_config``, ``version``. Read from the tokens, where
+        an identifier before ``(`` is such a call and nothing else, rather
+        than from the tree, which the translation prunes as it goes.
+        """
+        tokens = [t for t in self.stream.tokens if t.channel == antlr4.Token.DEFAULT_CHANNEL]
+        for token, following in itertools.pairwise(tokens):
+            if (
+                token.type == ADQLLexer.ID
+                and following.type == ADQLLexer.LPAREN
+                and token.text.lower() not in self.declared_functions
+            ):
+                raise QueryError(
+                    f"unknown function {token.text}: only the functions the"
+                    " capabilities declare can be called"
+                )
 
 
 class _TableCollector(ADQLParserListener):
@@ -173,15 +219,18 @@ _outcome = threading.local()
 
 
 @lru_cache(maxsize=settings.translation_cache_size)
-def _translated(query: str) -> Translation:
+def _translated(query: str, backend: str) -> Translation:
     """The memoised translation. Call :func:`translate`, not this.
 
-    The body runs only on a miss, which is what makes the flag exact.
+    The body runs only on a miss, which is what makes the flag exact. The
+    geometry backend is part of the key, so the result stays a function of
+    the arguments alone.
     """
     _outcome.hit = False
     try:
         translator = _Translator(query)
-        sql = translator.to_postgresql()
+        translator.declared_functions = geometry.BACKENDS[backend].callable_functions()
+        sql = translator.to_postgresql(*GEOMETRY_VISITORS[backend])
     except QuerySyntaxError as exc:
         detail = "; ".join(str(e) for e in exc.syntax_errors) or str(exc)
         raise QueryParseError(f"ADQL syntax error: {detail}") from exc
@@ -205,7 +254,8 @@ def translate(query: str) -> Translation:
     client is allowed to write in a query, which is what this returns.
 
     **The result is memoised, and that rests on translation being pure.** This
-    is a function of the query text alone: it consults no TAP_SCHEMA, no
+    is a function of the query text (and the process-wide geometry backend,
+    which is part of the key) alone: it consults no TAP_SCHEMA, no
     connection and no principal, and returns a frozen ``Translation``, so a
     hit is indistinguishable from a miss. Anything that makes it depend on
     something else — a column lookup, per-user behaviour, a mutable field on
@@ -218,7 +268,7 @@ def translate(query: str) -> Translation:
     fill the cache with its own mistakes.
     """
     _outcome.hit = True
-    result = _translated(_normalise(query))
+    result = _translated(_normalise(query), settings.geometry_backend)
     (ADQL_TRANSLATION_HITS if _outcome.hit else ADQL_TRANSLATION_MISSES).inc()
     return result
 
@@ -246,7 +296,7 @@ def _tables_from_tree(translator: ADQLQueryTranslator) -> frozenset[str]:
 
 
 def adql_to_postgresql(query: str) -> str:
-    """Translate an ADQL query into PostgreSQL (pg_sphere) SQL."""
+    """Translate an ADQL query into PostgreSQL SQL for the geometry backend."""
     return translate(query).sql
 
 
