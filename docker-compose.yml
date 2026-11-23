@@ -19,6 +19,16 @@ services:
     #                           launchers, I/O workers and autovacuum
     # The Helm chart carries the same rule for its 2 GiB pod in
     # postgresql.tuning.
+    #
+    # /dev/shm is where PostgreSQL allocates what a parallel query shares
+    # with its workers -- a parallel bitmap scan's bitmap, a parallel hash
+    # join's table -- and the container runtime's default is 64 MiB, which
+    # 32 concurrent parallel bitmap scans of ObsCore exhaust ("could not
+    # resize shared memory segment ... No space left on device", answered
+    # as a 500). Sized by the same rule as shared_buffers, 1/4 of the memory
+    # limit; it is a ceiling, not a reservation, and what is used counts
+    # against the container's memory.
+    shm_size: 1gb
     command:
       - postgres
       - -c

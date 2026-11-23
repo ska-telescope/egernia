@@ -123,6 +123,11 @@ own limits:
   get the workers its plan assumed. Compose: (API 8 + executor 8) x 2 = 32.
 - `max_worker_processes` = `max_parallel_workers` + 8, for the server's own
   launchers, I/O workers and autovacuum, which come out of the same pool.
+- `/dev/shm` = 1/4 of the memory limit (`shm_size` in compose,
+  `postgresql.shmSize` in the chart, a memory-backed volume). PostgreSQL
+  allocates there what a parallel query shares with its workers, and the
+  container runtime's default is 64 MiB. See "Shared memory for parallel
+  queries" below.
 - Leave `max_parallel_workers_per_gather` at 2; the sync path's
   `SET LOCAL jit = off` stays as it is.
 
@@ -130,3 +135,75 @@ These are cluster-wide, restart-only settings (`max_worker_processes` in
 particular), so they cannot be applied per query with `SET LOCAL`; they are
 server arguments. `tests/unit/test_postgres_sizing.py` pins both the values
 and the rule.
+
+### Shared memory for parallel queries
+
+A parallel query's leader and workers share state in dynamic shared memory,
+which PostgreSQL allocates as files in `/dev/shm`
+(`dynamic_shared_memory_type = posix`). Most plans need little: a parallel
+sequential scan under a partial aggregate holds about 200 kB. A **parallel
+bitmap heap scan** shares its bitmap, and a parallel hash join its table,
+and those grow with the data up to `work_mem`.
+
+The aggregation class of the comparison benchmark (tap-compare Q13) showed
+what the default costs. For three of its four parameter values the planner
+scans the table sequentially; for the fourth (`calib_level >= 3`, a quarter
+of the rows) it picks a parallel bitmap heap scan, whose bitmap takes 1, 2
+and then 4 MiB segments. Measured on the pinned eight-worker stack, 32
+clients, 20 s, CSV:
+
+| `/dev/shm` | answered 200 | answered 500 | peak use |
+|---|---|---|---|
+| 64 MiB (runtime default) | 270 | 1,396 | 64 MiB (full) |
+| 1 GiB | 705 | 0 | 262 MiB |
+
+The failures are `could not resize shared memory segment ... No space left
+on device` in the server log and a 500 to the client. In the comparison's
+published runs, where the four values are mixed, they were 3 to 8% of the
+class's requests at 32 clients with eight API workers, and none with one
+worker, whose pool admits eight queries at a time.
+
+Peak use was about 8 MiB per concurrent query, so the default fills at
+eight of them. Size it by the same quarter as `shared_buffers`: it is a
+ceiling, not a reservation, and what is used is charged to the container's
+memory like any other allocation.
+
+## The sync spool and the dirty-page limit
+
+A synchronous result is serialised into a spool before the response starts,
+so the database connection is released before a slow client is served
+(`run_sync`). The spool stays in memory up to 16 MiB and is a temporary
+file beyond that.
+
+The threshold was 1 MiB until the comparison showed what the file costs
+under a container memory limit. The kernel scales its allowance of
+unwritten ("dirty") pages to the container, and a writer that exceeds it is
+put to sleep in `write()` until the disk catches up. With the default
+`vm.dirty_ratio = 20` that allowance is a fifth of the container's free
+memory and a few megabytes never reach it. On a host tuned with
+`vm.dirty_bytes` (here 100 MB on a 120 GiB machine, a ratio of 0.08%) a
+2 GiB container gets about 1.5 MB, and less as its processes hold more
+memory. Writing a 3 MB temporary file, in a container of the API image:
+
+| container | time in `write()` |
+|---|---|
+| no memory limit | 2 ms |
+| 2 GiB limit, nothing else held | 50 ms |
+| 2 GiB limit, 1.1 GiB held | 160 ms |
+| the live eight-worker API container (1.0 GiB held) | about 400 ms |
+
+That is why eight workers served a single client's ten-thousand-row query
+(tap-compare Q11, a 3 MB CSV) more slowly than one worker did: the database
+answered in 40 ms and the API then slept in `write()`, using no CPU. Same
+stack, one client, before and after raising the threshold:
+
+| Q11, one client, eight workers | spool to file above 1 MiB | above 16 MiB |
+|---|---|---|
+| CSV | 4.7 rps | 15.1 rps |
+| VOTable | 2.4 rps | 12.2 rps |
+
+(The left column is the published comparison run; the right is a 20 s
+closed loop of `curl` on the same pinned stack.) Sixteen megabytes covers a
+default-MAXREC result of every ObsCore column in VOTable (8.4 MB). A larger
+result still goes to a file and, on such a host, still pays the throttle;
+`docs/deployment.md` has the memory this costs a pod.

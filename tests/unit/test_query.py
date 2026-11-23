@@ -90,7 +90,17 @@ def test_run_sync_releases_connection_before_body_is_read(fake_db, monkeypatch):
     cast(Any, chunks).close()  # client disconnected before consuming the body
 
 
+def test_run_sync_keeps_a_default_maxrec_result_in_memory(fake_db):
+    # ~3 MB, the size of a 10,000-row ObsCore result: a spool file for it is
+    # what made eight workers slower than one under a container memory limit
+    fake_db.result_rows = [("x" * 300, float(i)) for i in range(10_000)]
+    chunks, _ = run_sync(prepare_query({"QUERY": QUERY, "RESPONSEFORMAT": "csv"}))
+    assert isinstance(chunks, query.WholeBody)
+    assert len(chunks.body) > 3_000_000
+
+
 def test_run_sync_rolls_to_disk_and_closes_spool(fake_db, monkeypatch):
+    monkeypatch.setattr(query, "SPOOL_MEMORY_BYTES", 1 << 20)
     fake_db.result_rows = [("x" * 1024, float(i)) for i in range(2048)]
     opened = []
     real_spool = query.tempfile.SpooledTemporaryFile
@@ -182,7 +192,8 @@ def test_column_annotations_cached_until_schema_changes(fake_db):
     assert annotation_reads() == 2
 
 
-def test_small_body_is_sent_whole_and_large_body_streamed(fake_db):
+def test_small_body_is_sent_whole_and_large_body_streamed(fake_db, monkeypatch):
+    monkeypatch.setattr(query, "SPOOL_MEMORY_BYTES", 1 << 20)
     prepared = prepare_query({"QUERY": QUERY, "RESPONSEFORMAT": "csv"})
     chunks, mime = run_sync(prepared)
     response = query.sync_response(chunks, mime)

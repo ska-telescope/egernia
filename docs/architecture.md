@@ -130,7 +130,7 @@ sequenceDiagram
         A->>A: serialize to spool file
     end
     Note over A: connection released before delivery —<br/>a slow reader must not hold a pooled connection
-    A-->>C: 200, body sent whole (spool still in memory, up to 1 MiB)<br/>or streamed from the spool file
+    A-->>C: 200, body sent whole (spool still in memory, up to 16 MiB)<br/>or streamed from the spool file
     A->>P: COMMIT, release connection
 ```
 

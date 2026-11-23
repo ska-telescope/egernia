@@ -547,6 +547,13 @@ postgresql:
     maintenance_work_mem: 128MB
     max_parallel_workers: 32
     max_worker_processes: 40
+  # -- Size of the memory-backed /dev/shm, where PostgreSQL allocates what a
+  # parallel query shares with its workers. The container runtime's default
+  # is 64Mi, which a few dozen concurrent parallel bitmap scans exhaust
+  # ("could not resize shared memory segment"). 1/4 of the memory limit
+  # below, like shared_buffers; a ceiling, not a reservation, and what is
+  # used counts against that limit.
+  shmSize: 512Mi
   resources:
     requests:
       cpu: 250m

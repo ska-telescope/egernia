@@ -32,7 +32,16 @@ from starlette.responses import Response, StreamingResponse
 from .params import require
 
 STREAM_CHUNK_ROWS = 2000
-SPOOL_MEMORY_BYTES = 1 << 20
+# A sync body up to this size stays in memory; a larger one goes to a
+# temporary file. The size covers a default-MAXREC (10,000-row) result of
+# every ObsCore column in VOTable (~8.4 MB), so the common result never
+# touches a disk. That matters under a memory limit: the kernel scales its
+# dirty-page allowance to the container, and on a host tuned with a small
+# vm.dirty_bytes a 2 GiB container may hold ~1 MB of unwritten pages before
+# write() is throttled to the disk's pace -- a 3 MB spool file then costs
+# 400 ms where the query took 40 (docs/postgres-performance.md, "The sync
+# spool and the dirty-page limit").
+SPOOL_MEMORY_BYTES = 16 << 20
 SPOOL_READ_BYTES = 64 << 10
 
 

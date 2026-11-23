@@ -56,6 +56,8 @@ spec:
               mountPath: /tmp
             - name: pg-run
               mountPath: /var/run/postgresql
+            - name: dshm
+              mountPath: /dev/shm
           readinessProbe:
             exec:
               command: ["pg_isready", "-U", {{ .Values.postgresql.username | quote }}]
@@ -71,6 +73,10 @@ spec:
           emptyDir: {}
         - name: pg-run
           emptyDir: {}
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: {{ .Values.postgresql.shmSize | quote }}
   volumeClaimTemplates:
     - metadata:
         name: data
