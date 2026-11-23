@@ -106,7 +106,10 @@ pod memory floor ≈ ~140 MiB x workers + workers x config.dbPoolMax x ~2.5 MiB
 ```
 
 (measured: four workers with pools exercised settle toward ~600 MiB against
-the default 1 Gi). The same `workers x config.dbPoolMax` product is the
+the default 1 Gi). That is the floor of an idle pool. A synchronous result
+is held in memory up to 16 MiB before it goes to a file under `/tmp`, and
+twice over at the moment it is handed to the response, so add the results in
+flight: 32 clients each fetching a 4 MB result are 256 MB at worst. The same `workers x config.dbPoolMax` product is the
 pod's connection ceiling — the arithmetic in
 [When every connection is busy](#when-every-connection-is-busy) below — so
 raising workers multiplies both, and `config.dbPoolMax` is what makes a

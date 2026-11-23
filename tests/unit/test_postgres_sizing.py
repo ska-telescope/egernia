@@ -24,6 +24,7 @@ _UNITS = {
     "k": 2**10,
     "m": 2**20,
     "g": 2**30,
+    "gb": 2**30,
     "Mi": 2**20,
     "Gi": 2**30,
 }
@@ -61,6 +62,10 @@ def test_compose_settings_fit_the_comparison_pins(compose_tuning):
     memory = _bytes(pins["services"]["db"]["mem_limit"])
     # one API process and one executor, each with the default pool
     _check(compose_tuning, memory, pool_slots=2 * settings.db_pool_max)
+    # /dev/shm follows shared_buffers: the runtime's 64 MiB default fails
+    # concurrent parallel bitmap scans ("could not resize shared memory")
+    compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text())
+    assert _bytes(compose["services"]["db"]["shm_size"]) == memory // 4
 
 
 def test_chart_settings_fit_the_in_chart_pod():
@@ -70,6 +75,7 @@ def test_chart_settings_fit_the_in_chart_pod():
     api = values["tapApi"]["replicas"] * values["tapApi"]["workers"]
     slots = (api + values["tapExecutor"]["replicas"]) * values["config"]["dbPoolMax"]
     _check(pg["tuning"], memory, pool_slots=slots)
+    assert _bytes(pg["shmSize"]) == memory // 4
 
 
 @pytest.mark.parametrize(

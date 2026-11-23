@@ -158,6 +158,12 @@ jobs:
       - run: helm lint charts/egernia
       - name: Template with defaults
         run: helm template egernia charts/egernia > /dev/null
+      - name: PostgreSQL gets a memory-backed /dev/shm
+        run: |
+          # the runtime's 64Mi default fails concurrent parallel queries
+          helm template egernia charts/egernia \
+            --show-only templates/postgres-statefulset.yaml \
+            | grep -A2 'name: dshm' | grep -q 'medium: Memory'
       - name: Template with external database and ingress
         run: |
           helm template egernia charts/egernia \
