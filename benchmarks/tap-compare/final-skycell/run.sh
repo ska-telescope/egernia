@@ -13,7 +13,8 @@
 # final-smoke), GEN_CPUS (taskset list for the generator, "24-29"), RUN_NAME
 # (an existing run directory to resume), RESTORE (1: leave the stacks up on
 # their pins; 0: stop them at the end), ALLOW_NEIGHBOURS (1: measure even
-# though an unpinned foreign container is burning CPU).
+# though an unpinned foreign container is burning CPU), ONLY (egernia:
+# measure egernia's rungs alone, PROTOCOL.md amendment 4).
 #
 # Requires the seeded egernia volume, DaCHS's ingested data, argus's ingested
 # database, and the exported corpus at ../corpus/obscore.csv.
@@ -52,6 +53,15 @@ case $PHASE in
     *) echo "PHASE must be a or b, not '$PHASE'" >&2; exit 2 ;;
 esac
 TARGETS="$EGERNIA_TARGET dachs-final argus-final"
+# Amendment 4: ONLY=egernia measures egernia's rungs alone. The gates still
+# cover all three servers, and DaCHS and argus stay up and idle on their own
+# cores, as they were while egernia's rungs were measured in the interleaved
+# runs.
+case ${ONLY:-} in
+    "") MEASURED=$TARGETS; ONLY_FLAG="" ;;
+    egernia) MEASURED=$EGERNIA_TARGET; ONLY_FLAG="--only $EGERNIA_TARGET" ;;
+    *) echo "ONLY must be unset or 'egernia', not '$ONLY'" >&2; exit 2 ;;
+esac
 
 EGERNIA_URL=http://localhost:8080/tap
 DACHS_URL=http://localhost:8081/tap
@@ -209,6 +219,7 @@ up_egernia() {
     minimum=$([ "$WORKERS" = 1 ] && echo 1 || echo $((WORKERS + 1)))
     [ "$processes" -ge "$minimum" ] || fail "egernia api processes: $processes < $minimum"
     check_cpuset $EGERNIA_CPUSET $EGERNIA_CONTAINERS
+    check_shm
     check_backend egernia-db-1 egernia-tap-api-1 egernia-tap-executor-1 skycell
 }
 
@@ -281,7 +292,7 @@ record() {
     # shellcheck disable=SC2086
     docker inspect $containers --format '{{json .HostConfig}}' | python3 -c '
 import json, sys
-print(json.dumps([{k: h[k] for k in ("CpusetCpus", "NanoCpus", "Memory")}
+print(json.dumps([{k: h[k] for k in ("CpusetCpus", "NanoCpus", "Memory", "ShmSize")}
                   for h in map(json.loads, sys.stdin)], indent=2))' > "$dir/$PHASE-$server.json"
     {
         echo "# $(date -u +%FT%TZ) phase $PHASE, $server"
@@ -340,7 +351,7 @@ if [ -n "$others" ] && [ "${ALLOW_CONCURRENT:-0}" != 1 ]; then
         "ALLOW_CONCURRENT=1 if you know it is finished."
 fi
 
-log "PROGRESS start phase=$PHASE scenario=$SCENARIO targets='$TARGETS' generator_cpus=$GEN_CPUS"
+log "PROGRESS start phase=$PHASE scenario=$SCENARIO targets='$TARGETS' measured='$MEASURED' generator_cpus=$GEN_CPUS"
 expect "corpus sha256" "$(sha256sum "$SUITE/corpus/obscore.csv" | cut -d' ' -f1)" \
     "$EXPECTED_CORPUS_SHA"
 check_neighbours
@@ -383,13 +394,14 @@ else
 fi
 
 # an untimed pass per server, so no first repetition pays for a cold cache
-for target in $TARGETS; do
+for target in $MEASURED; do
     log "PROGRESS phase=$PHASE step=warm target=$target"
     tap run --target "$target" --scenario warm
 done
 
 log "PROGRESS phase=$PHASE step=measure run=$RUN_NAME"
-tap compare --targets $TARGETS --scenario "$SCENARIO" --resume "$RUN_NAME" \
+# shellcheck disable=SC2086
+tap compare --targets $TARGETS $ONLY_FLAG --scenario "$SCENARIO" --resume "$RUN_NAME" \
     --abort-error-fraction "$ABORT_ERROR_FRACTION"
 
 if [ "$RESTORE" != 1 ]; then
