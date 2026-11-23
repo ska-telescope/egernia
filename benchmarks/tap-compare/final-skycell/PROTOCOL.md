@@ -423,3 +423,80 @@ Debian package runs it in production.
 `tests/test_final_skycell.py` covers the overlay on every DaCHS compose
 call, the user check's place in `up_dachs`, and that the wrapper changes
 exactly one line of the image's entrypoint.
+
+## Amendment 4: two egernia faults fixed, and egernia measured again alone (after measurement ended)
+
+Registered after all three experiments were measured and published, and
+before anything here was measured again. Tagged
+`tap-compare-final-skycell-prereg-v5`.
+
+**What the published runs found.** Two faults in egernia itself
+(`docs/postgres-performance.md`, "Shared memory for parallel queries" and
+"The sync spool and the dirty-page limit"):
+
+1. With more than one API worker, Q13 returned HTTP 500 at 32 clients (3
+   to 8% of requests in phase B, up to 6% at the larger tiers). PostgreSQL
+   allocates what a parallel query shares with its workers in `/dev/shm`,
+   and the db container had the runtime's default of 64 MiB.
+2. With eight workers, Q11 at one client fell from 13.1 to 4.7 rps (CSV).
+   Sync results above 1 MiB were written to a temporary file, and under
+   the API container's memory limit the kernel throttled those writes.
+
+Both are fixed in PR #230: the in-memory spool threshold is 16 MiB, and
+`/dev/shm` is a quarter of the db container's memory limit. The published
+runs stand as measured, on the revisions they name.
+
+**What is measured again.** egernia alone, on the fixed revision, over the
+grids of experiments 2 and 3 unchanged: phase A, phase B and the three
+scaling tiers. DaCHS and argus are not measured again. Decided by the
+project lead and recorded here.
+
+- `ONLY=egernia` on `run.sh` and `scaling.sh` passes the harness's `--only`
+  for egernia's target. The grid, rung shape, repetitions, warm-up, order
+  of cells, generator and its cores are the registered ones.
+- The gates still run against all three servers, so taplint and the
+  agreement on every portable class are checked for the fixed revision
+  before anything is timed.
+- In phases A and B and at tier 8, DaCHS and argus stay up and idle on
+  their own cores, as they were during egernia's rungs in the interleaved
+  runs. At tiers 16 and 24 egernia runs alone, as registered.
+- The drivers check that the db container's `/dev/shm` is a quarter of its
+  memory limit (`check_shm`), and the pin records carry `ShmSize`.
+  `docker-compose.yml` gives 1 GiB for the 4 GiB container of phases A
+  and B. `scaling.sh` layers `pins/shm-<tier>.yml`: 1, 2 and 3 GiB at tiers
+  8, 16 and 24. The borrowed pin files are unchanged.
+- 288 rungs per phase and 180 for the tiers: about 19 hours.
+
+**How the results are read.** A cell's verdict is computed by the
+unchanged tie rule from egernia's three repetitions in the new run and
+DaCHS's and argus's three repetitions in the published run of the same
+experiment (`20261117T203446Z-d360fb1e-tap-compare`,
+`20261119T203938Z-19e19fcb-tap-compare`,
+`20261120T184934Z-61542dc1-tap-compare-scaling`). The error ceiling and the
+generator guard apply to each rung where it was measured.
+
+**What this trades away.** egernia's rungs and its opponents' are no longer
+interleaved inside a cell, and they are days apart. Interleaving is what
+kept a drift of the host out of the verdicts. The evidence that the
+opponents' columns would not move is that they reproduced before: against
+the pg_sphere-era runs DaCHS tied in 96 of 96 cells in both tables and
+argus in 95 of 96 in phase A. It is evidence about the past, not a
+measurement. Hypothesis E3 below is the check this run can make itself.
+
+**Hypotheses, stated in advance.**
+
+- **E1.** No egernia rung exceeds the 1% error ceiling, in either phase or
+  at any tier (H4 and S5, on the fixed revision).
+- **E2.** In phase B, Q11 at one client is not slower than in phase A, in
+  either format.
+- **E3 (control).** For the classes whose results are far below 1 MiB and
+  do not use a parallel bitmap scan (Q01 to Q07, Q10 and Q12), egernia's cells
+  tie its own cells in the published run of the same experiment. A class
+  that does not tie means the host has drifted between the two runs, and
+  that class's verdicts against DaCHS and argus are reported with that
+  caveat.
+- Q11, Q13 and the mix are expected to move; by how much is not predicted.
+
+`tests/test_final_skycell.py` covers the `--only` wiring of both drivers,
+the shared-memory check's place in both `up_egernia`, and the tier pins'
+`shm_size`.

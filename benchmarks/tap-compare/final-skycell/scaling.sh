@@ -17,7 +17,8 @@
 #
 # Environment: SCENARIO (scaling3-skycell | scaling3-skycell-smoke), TIERS ("8 16 24"),
 # GEN_CPUS (taskset list for the generator, "24-29"), RUN_NAME (an existing
-# run directory to resume), ALLOW_NEIGHBOURS, ALLOW_CONCURRENT.
+# run directory to resume), ALLOW_NEIGHBOURS, ALLOW_CONCURRENT, ONLY (egernia:
+# measure egernia's rungs alone, PROTOCOL.md amendment 4).
 #
 # Requires the seeded egernia volume, DaCHS's ingested data, argus's ingested
 # database, and the exported corpus at ../corpus/obscore.csv.
@@ -48,6 +49,13 @@ EGERNIA_PROJECT=egernia
 SUITE_PROJECT=tap-compare
 
 TARGETS="egernia-skycell-scaling3 dachs-scaling3 argus-scaling3"
+# Amendment 4: ONLY=egernia measures egernia's rungs alone. The gates still
+# cover all three servers at every tier.
+case ${ONLY:-} in
+    "" | egernia) ;;
+    *) echo "ONLY must be unset or 'egernia', not '$ONLY'" >&2; exit 2 ;;
+esac
+ONLY=${ONLY:-}
 EGERNIA_URL=http://localhost:8080/tap
 DACHS_URL=http://localhost:8081/tap
 ARGUS_URL=http://localhost/argus
@@ -69,6 +77,12 @@ order_for() {
     esac
 }
 server_of() { case $1 in egernia) echo egernia-skycell-scaling3 ;; dachs) echo dachs-scaling3 ;; argus) echo argus-scaling3 ;; esac; }
+MEASURED=$TARGETS
+ONLY_FLAG=""
+if [ -n "$ONLY" ]; then
+    MEASURED=$(server_of "$ONLY")
+    ONLY_FLAG="--only $MEASURED"
+fi
 
 stop_sampler() {
     [ -n "$SAMPLER_PID" ] || return 0
@@ -113,7 +127,8 @@ tap() {
 }
 compose_egernia() {
     docker compose -p "$EGERNIA_PROJECT" -f "$REPO/docker-compose.yml" \
-        -f "$HERE/pins/egernia-$1.yml" -f "$HERE/pins/skycell.yml" "${@:2}"
+        -f "$HERE/pins/egernia-$1.yml" -f "$HERE/pins/shm-$1.yml" \
+        -f "$HERE/pins/skycell.yml" "${@:2}"
 }
 compose_dachs() {
     docker compose -p "$SUITE_PROJECT" -f "$SUITE/docker-compose.dachs.yml" \
@@ -203,6 +218,7 @@ up_egernia() {
     minimum=$([ "$workers" = 1 ] && echo 1 || echo $((workers + 1)))
     [ "$processes" -ge "$minimum" ] || fail "egernia api processes: $processes < $minimum"
     check_cpuset "$(cpuset_of "$pins")" $EGERNIA_CONTAINERS
+    check_shm
     check_backend egernia-db-1 egernia-tap-api-1 egernia-tap-executor-1 skycell
 }
 
@@ -304,7 +320,7 @@ record() {
     # shellcheck disable=SC2086
     docker inspect $containers --format '{{json .HostConfig}}' | python3 -c '
 import json, sys
-print(json.dumps([{k: h[k] for k in ("CpusetCpus", "NanoCpus", "Memory")}
+print(json.dumps([{k: h[k] for k in ("CpusetCpus", "NanoCpus", "Memory", "ShmSize")}
                   for h in map(json.loads, sys.stdin)], indent=2))' > "$dir/t$tier-$server.json"
     {
         echo "# $(date -u +%FT%TZ) tier $tier $server"
@@ -364,7 +380,7 @@ if [ -n "$others" ] && [ "${ALLOW_CONCURRENT:-0}" != 1 ]; then
         "ALLOW_CONCURRENT=1 if you know it is finished."
 fi
 
-log "PROGRESS start scenario=$SCENARIO tiers='$TIERS' classes='$CLASSES' generator_cpus=$GEN_CPUS"
+log "PROGRESS start scenario=$SCENARIO tiers='$TIERS' classes='$CLASSES' measured='$MEASURED' generator_cpus=$GEN_CPUS"
 expect "corpus sha256" "$(sha256sum "$SUITE/corpus/obscore.csv" | cut -d' ' -f1)" \
     "$EXPECTED_CORPUS_SHA"
 check_neighbours
@@ -400,17 +416,20 @@ for tier in $TIERS; do
 
     if [ "$tier" = 8 ]; then
         # all three fit: interleave A,B,C inside every cell
-        for target in $TARGETS; do
+        # amendment 4: with ONLY, that server's rungs alone; the other two
+        # stay up and idle, as they were during its rungs when interleaved
+        for target in $MEASURED; do
             log "PROGRESS tier=$tier step=warm target=$target"
             tap run --target "$target" --scenario warm
         done
         truncate_argus_jobs_if_up
-        log "PROGRESS tier=$tier step=measure interleaved"
+        log "PROGRESS tier=$tier step=measure interleaved only='${ONLY:-all}'"
         # shellcheck disable=SC2086
-        tap compare --targets $TARGETS --scenario "$SCENARIO" --tier "$tier" \
+        tap compare --targets $TARGETS $ONLY_FLAG \
+            --scenario "$SCENARIO" --tier "$tier" \
             --classes $CLASSES --resume "$RUN_NAME" --abort-error-fraction "$ABORT_ERROR_FRACTION"
     else
-        for server in $ORDER; do
+        for server in ${ONLY:-$ORDER}; do
             for other in egernia dachs argus; do
                 [ "$other" = "$server" ] || down_server "$other" "$tier"
             done

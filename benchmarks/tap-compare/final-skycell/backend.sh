@@ -122,3 +122,13 @@ check_dachs_user() {
     expect "dachs serving command" \
         "$(docker exec tap-compare-dachs-1 ps -o args= -p 1)" "/usr/bin/python3 /usr/bin/dachs serve debug"
 }
+
+# Amendment 4: PostgreSQL's /dev/shm is a quarter of the db container's
+# memory limit (docs/postgres-performance.md, "Shared memory for parallel
+# queries"). The runtime's 64 MiB default is what failed Q13 at 32 clients.
+check_shm() {
+    local memory shm
+    memory=$(docker inspect egernia-db-1 --format '{{.HostConfig.Memory}}')
+    shm=$(docker inspect egernia-db-1 --format '{{.HostConfig.ShmSize}}')
+    expect "egernia db /dev/shm (a quarter of $memory)" "$shm" "$((memory / 4))"
+}

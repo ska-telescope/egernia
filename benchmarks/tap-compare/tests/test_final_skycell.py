@@ -34,6 +34,7 @@ def _yaml(path: pathlib.Path) -> dict:
 
 def test_every_borrowed_pins_file_is_a_byte_copy():
     own = {"skycell.yml", "egernia-ab-pgsphere.yml", "dachs-as-gavo.yml", "dachs-as-gavo.sh"}
+    own |= {"shm-8.yml", "shm-16.yml", "shm-24.yml"}  # amendment 4
     borrowed = sorted(p.name for p in (HERE / "pins").iterdir() if p.name not in own)
     sources = {
         p.name: p for d in ("final", "scaling-three-way") for p in (SUITE / d / "pins").iterdir()
@@ -352,3 +353,40 @@ def test_the_wrapper_changes_only_the_images_last_line(tmp_path):
         )
     ]
     assert "grep -qx 'exec setpriv --reuid=gavo" in wrapper  # refuses a changed image
+
+
+# -- amendment 4: egernia measured again alone, with /dev/shm sized ----------
+
+
+def test_only_is_passed_to_the_harness_and_gates_still_cover_every_target():
+    for name in MEASURERS:
+        text = (HERE / name).read_text()
+        # nothing but egernia may be asked for
+        assert "ONLY must be unset or 'egernia'" in text, name
+        gates = [line for line in text.splitlines() if "--gates-only" in line]
+        assert gates, name
+        assert not any("ONLY_FLAG" in line for line in gates), name
+        # every measuring compare carries the flag; the warm-up follows it
+        measuring = re.findall(r"tap compare --targets \$TARGETS \$ONLY_FLAG", text)
+        assert len(measuring) == 1, name
+        assert "for target in $MEASURED; do" in text, name
+    scaling = (HERE / "scaling.sh").read_text()
+    assert "for server in ${ONLY:-$ORDER}; do" in scaling  # tiers 16 and 24
+
+
+def test_db_shared_memory_is_a_quarter_of_the_memory_limit_at_every_tier():
+    for name in MEASURERS:
+        (body,) = re.findall(r"up_egernia\(\) \{\n(.*?)\n\}", (HERE / name).read_text(), re.S)
+        assert "    check_shm\n" in body, name
+    assert '"$((memory / 4))"' in (HERE / "backend.sh").read_text()
+    base = _yaml(SUITE.parents[1] / "docker-compose.yml")["services"]["db"]["shm_size"]
+    gib = {"1gb": 1, "2gb": 2, "3gb": 3}
+    for pins in ("egernia-w1.yml", "egernia-w8.yml"):  # phases A and B: the base's
+        db = _yaml(HERE / "pins" / pins)["services"]["db"]
+        assert "shm_size" not in db and db["mem_limit"] == "4g" and base == "1gb", pins
+    scaling = (HERE / "scaling.sh").read_text()
+    assert '-f "$HERE/pins/egernia-$1.yml" -f "$HERE/pins/shm-$1.yml"' in scaling
+    for tier in (8, 16, 24):
+        memory = _yaml(HERE / "pins" / f"egernia-{tier}.yml")["services"]["db"]["mem_limit"]
+        shm = _yaml(HERE / "pins" / f"shm-{tier}.yml")["services"]["db"]["shm_size"]
+        assert f"{gib[shm] * 4}g" == memory, tier

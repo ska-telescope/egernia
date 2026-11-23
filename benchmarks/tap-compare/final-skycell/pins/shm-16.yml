@@ -1,0 +1,6 @@
+# Amendment 4 (../PROTOCOL.md): PostgreSQL's /dev/shm at tier 16, a quarter
+# of the db container's memory limit. Layered after egernia-16.yml, which
+# stays a byte copy of scaling-three-way's.
+services:
+  db:
+    shm_size: 2gb
