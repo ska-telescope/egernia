@@ -36,7 +36,9 @@ class Zenodo:
             headers["Content-Type"] = "application/json"
             data = json.dumps(payload).encode()
         if file is not None:
-            headers["Content-Type"] = "application/zip"
+            # The bucket API consumes a raw binary stream, even for ZIP files.
+            # Sending the archive's MIME type makes Zenodo reject it with 415.
+            headers["Content-Type"] = "application/octet-stream"
             headers["Content-Length"] = str(os.fstat(file.fileno()).st_size)
             data = file
         request = Request(url, data=data, headers=headers, method=method)
