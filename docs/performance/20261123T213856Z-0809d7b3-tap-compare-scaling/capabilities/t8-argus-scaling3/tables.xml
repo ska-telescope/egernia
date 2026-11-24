@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<vosi:tableset xmlns:vosi="http://www.ivoa.net/xml/VOSITables/v1.0" xmlns:vs="http://www.ivoa.net/xml/VODataService/v1.1" xmlns:vte="http://www.opencadc.org/xml/VOSITables-ext/v0.1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <schema>
+    <name>caom2</name>
+    <description>Common Archive Observation Model, version 2.4</description>
+    <utype>caom2</utype>
+    <table type="output">
+      <name>caom2.Observation</name>
+      <description>the main CAOM Observation table</description>
+    </table>
+    <table type="output">
+      <name>caom2.Plane</name>
+      <description>the products of the observation</description>
+    </table>
+    <table type="output">
+      <name>caom2.Artifact</name>
+      <description>physical data artifacts (e.g. files)</description>
+    </table>
+    <table type="output">
+      <name>caom2.Part</name>
+      <description>parts of artifacts (e.g. FITS extensions)</description>
+    </table>
+    <table type="output">
+      <name>caom2.Chunk</name>
+      <description>description of the data array in a part</description>
+    </table>
+    <table type="output">
+      <name>caom2.ObservationMember</name>
+      <description>composite to simple observation join table</description>
+    </table>
+    <table type="output">
+      <name>caom2.ProvenanceInput</name>
+      <description>plane.provenance to input plane join table</description>
+    </table>
+    <table type="output">
+      <name>caom2.HarvestSkipURI</name>
+      <description>list of observations to retry or artifacts to sync</description>
+    </table>
+    <table type="output">
+      <name>caom2.HarvestState</name>
+      <description>observation sync state</description>
+    </table>
+    <table type="output">
+      <name>caom2.SIAv1</name>
+      <description>SIAv1 view on CAOM-2.0: caom.Observation JOIN caom.Plane JOIN caom2.Artifact, limited to calibrated science images</description>
+    </table>
+  </schema>
+  <schema>
+    <name>ivoa</name>
+    <description>tables and views defined by the IVOA, sometimes including prototypes!</description>
+    <table type="output">
+      <name>ivoa.ObsCore</name>
+      <description>ObsCore-1.1 observation table</description>
+    </table>
+  </schema>
+  <schema>
+    <name>tap_schema</name>
+    <description>a special schema to describe TAP-1.1 tablesets</description>
+    <table type="output">
+      <name>tap_schema.schemas</name>
+      <description>description of schemas in this tableset</description>
+    </table>
+    <table type="output">
+      <name>tap_schema.tables</name>
+      <description>description of tables in this tableset</description>
+    </table>
+    <table type="output">
+      <name>tap_schema.columns</name>
+      <description>description of columns in this tableset</description>
+    </table>
+    <table type="output">
+      <name>tap_schema.keys</name>
+      <description>description of foreign keys in this tableset</description>
+    </table>
+    <table type="output">
+      <name>tap_schema.key_columns</name>
+      <description>description of foreign key columns in this tableset</description>
+    </table>
+  </schema>
+</vosi:tableset>
