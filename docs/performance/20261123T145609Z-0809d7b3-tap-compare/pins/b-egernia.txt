@@ -1,0 +1,67 @@
+# 2026-11-23T14:57:34Z phase b, egernia
+## egernia-db-1
+cpuset=0-7 nanocpus=0 memory=4294967296
+postgres -c shared_buffers=1GB -c effective_cache_size=3GB -c work_mem=64MB -c max_parallel_workers=144 -c max_worker_processes=152
+  PID                 COMMAND
+  447314              postgres -c shared_buffers=1GB -c effective_cache_size=3GB -c work_mem=64MB -c max_parallel_workers=144 -c max_worker_processes=152
+  447427              postgres: io worker 1
+  447428              postgres: io worker 0
+  447429              postgres: io worker 2
+  447430              postgres: checkpointer
+  447431              postgres: background writer
+  447433              postgres: walwriter
+  447434              postgres: autovacuum launcher
+  447435              postgres: logical replication launcher
+  447804              postgres: tap tap 172.18.0.4(46156) idle
+  447805              postgres: tap tap 172.18.0.4(46162) idle
+  447999              postgres: tap tap 172.18.0.3(55110) idle
+  448000              postgres: tap tap 172.18.0.3(55120) idle
+  448013              postgres: tap tap 172.18.0.3(55126) idle
+  448014              postgres: tap tap 172.18.0.3(55142) idle
+  448020              postgres: tap tap 172.18.0.3(55148) idle
+  448021              postgres: tap tap 172.18.0.3(55156) idle
+  448027              postgres: tap tap 172.18.0.3(55168) idle
+  448028              postgres: tap tap 172.18.0.3(55178) idle
+  448034              postgres: tap tap 172.18.0.3(55190) idle
+  448035              postgres: tap tap 172.18.0.3(55202) idle
+  448041              postgres: tap tap 172.18.0.3(55216) idle
+  448042              postgres: tap tap 172.18.0.3(55228) idle
+  448048              postgres: tap tap 172.18.0.3(55242) idle
+  448049              postgres: tap tap 172.18.0.3(55244) idle
+  448057              postgres: tap tap 172.18.0.3(55254) idle
+  448058              postgres: tap tap 172.18.0.3(55260) idle
+## egernia-tap-api-1
+cpuset=0-7 nanocpus=0 memory=2147483648
+/bin/sh -c exec /srv/.venv/bin/uvicorn egernia_api.main:app --host 0.0.0.0 --port "${TAP_API_PORT:-8080}" --workers "${TAP_API_WORKERS:-1}" --backlog "${TAP_API_BACKLOG:-2048}" ${TAP_API_LIMIT_CONCURRENCY:+--limit-concurrency "${TAP_API_LIMIT_CONCURRENCY}"}
+TAP_GEOMETRY_BACKEND=skycell
+TAP_API_WORKERS=8
+  PID                 COMMAND
+  447634              /srv/.venv/bin/python /srv/.venv/bin/uvicorn egernia_api.main:app --host 0.0.0.0 --port 8080 --workers 8 --backlog 2048
+  447781              /srv/.venv/bin/python -c from multiprocessing.resource_tracker import main;main(6)
+  447782              /srv/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=9) --multiprocessing-fork
+  447783              /srv/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=13) --multiprocessing-fork
+  447784              /srv/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=17) --multiprocessing-fork
+  447785              /srv/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=21) --multiprocessing-fork
+  447786              /srv/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=25) --multiprocessing-fork
+  447787              /srv/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=29) --multiprocessing-fork
+  447788              /srv/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=33) --multiprocessing-fork
+  447789              /srv/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=37) --multiprocessing-fork
+## egernia-tap-executor-1
+cpuset=0-7 nanocpus=0 memory=2147483648
+/srv/.venv/bin/python -m egernia_executor.worker
+TAP_GEOMETRY_BACKEND=skycell
+  PID                 COMMAND
+  447641              /srv/.venv/bin/python -m egernia_executor.worker
+## SHOW
+effective_cache_size = 3GB
+max_connections = 100
+max_parallel_workers = 144
+max_worker_processes = 152
+shared_buffers = 1GB
+work_mem = 64MB
+## extensions
+pg_sphere 1.5.2
+pg_stat_statements 1.12
+pg_trgm 1.6
+plpgsql 1.0
+skycell 0.50

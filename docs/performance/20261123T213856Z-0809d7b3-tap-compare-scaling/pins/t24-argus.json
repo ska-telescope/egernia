@@ -1,0 +1,14 @@
+[
+  {
+    "CpusetCpus": "0-23",
+    "NanoCpus": 0,
+    "Memory": 9663676416,
+    "ShmSize": 67108864
+  },
+  {
+    "CpusetCpus": "0-23",
+    "NanoCpus": 0,
+    "Memory": 16106127360,
+    "ShmSize": 67108864
+  }
+]
