@@ -500,3 +500,51 @@ measurement. Hypothesis E3 below is the check this run can make itself.
 `tests/test_final_skycell.py` covers the `--only` wiring of both drivers,
 the shared-memory check's place in both `up_egernia`, and the tier pins'
 `shm_size`.
+
+## Amendment 5: tier 24 of the egernia-only rerun is measured again (after measurement ended)
+
+Registered after amendment 4's three runs completed and before tier 24 was
+measured again. Tagged `tap-compare-final-skycell-prereg-v6`.
+
+**What happened.** Amendment 4's runs completed with no error on any rung:
+`20261123T081838Z-0809d7b3-tap-compare` (phase A),
+`20261123T145609Z-0809d7b3-tap-compare` (phase B) and
+`20261123T213856Z-0809d7b3-tap-compare-scaling` (the tiers). Tier 24 was
+measured from 00:35Z to 02:05Z on 2026-11-24.
+
+The host's own activity record (`sar`, ten-minute intervals) shows a job
+that is not this benchmark's between 01:10Z and 01:50Z: 154,725 blocks/s
+written in the first interval against a median of 246 during the runs, a
+load average of 53 on 30 cores, and 5 to 7% I/O wait. The same record
+shows the same burst at the same hour on 2026-11-22 and 2026-11-23, so it
+is a nightly job of the host. No container started or stopped in that
+window.
+
+28 of tier 24's 60 rungs ended inside it. Their throughput is below the
+published egernia values for the same cells: the CSV mix at 8 clients by
+24% (490 to 502 rps in three repetitions, against 640 to 663), the CSV
+mix at 32 clients by 10%, Q13 in VOTable at 32 clients by 16%, Q01 and Q05
+at 32 clients by 6%. The 32 rungs outside the window reproduce the
+published values or exceed them.
+
+This is the risk amendment 4 named: with egernia measured alone, nothing
+inside a cell cancels a disturbance of the host.
+
+**The change.** Tier 24 is measured again in full, egernia alone, with the
+driver, pins, grid and gates of amendment 4 unchanged (`TIERS=24
+ONLY=egernia`), started after 02:00Z. It is a new run; the first tier-24
+block stays on disk and is published with it. All 60 rungs are measured
+again, not the 28: which rungs to repeat is then decided by the clock and
+not by their results.
+
+**Also recorded, and not measured again.** The same record shows two
+shorter bursts on 2026-11-23, one ten-minute interval each: ending 15:10Z
+(77,388 blocks/s) and ending 21:30Z (47,719 blocks/s). The first covers
+phase B's first twelve rungs, the VOTable mix, which came in 3 to 14%
+below the published values and tie them by the registered rule. The second
+covers phase B's last rungs, which tie. Both are stated in the report.
+
+**How the results are read.** Tier 24's cells are read from the
+re-measurement, and the report gives the first block's values beside them.
+If the re-measurement's own interval shows foreign activity in `sar`, that
+is reported and the tier is not measured a third time.
